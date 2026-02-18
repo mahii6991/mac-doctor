@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Mac Doctor snapshots (local machine state, not meant to be committed)
+.mac-doctor/
+
+# HTML reports generated locally
+mac-doctor-*.html
