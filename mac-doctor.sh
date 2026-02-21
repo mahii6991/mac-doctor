@@ -1305,6 +1305,7 @@ echo -e "  ${DIM}Run again:         ./mac-doctor.sh [--fix] [--html] [--no-snap]
 echo ""
 echo -e "  ${DIM}If Mac Doctor helped, consider supporting the project:${RESET}"
 echo -e "  ${DIM}  ☕  buymeacoffee.com/crazymahii${RESET}"
+echo -e "  ${DIM}  ♥   github.com/sponsors/mahii6991${RESET}"
 echo ""
 
 # ════════════════════════════════════════════════════════════════════════════
