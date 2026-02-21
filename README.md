@@ -4,6 +4,9 @@ A single bash script that tells you exactly why your Mac is slow.
 
 No dependencies. No install. Just run it.
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-crazymahii-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/crazymahii)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/mahii6991?style=flat&logo=github&label=Sponsor&color=ea4aaa)](https://github.com/sponsors/mahii6991)
+
 ## Run
 
 ```bash
@@ -31,6 +34,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/mahii6991/mac-doctor/main/ma
 ## Requirements
 
 - macOS 12+ · Intel or Apple Silicon · No root needed
+
+## Support
+
+If Mac Doctor saved you time or fixed your Mac, consider buying me a coffee!
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-crazymahii-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/crazymahii)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/mahii6991?style=flat&logo=github&label=Sponsor&color=ea4aaa)](https://github.com/sponsors/mahii6991)
 
 ## License
 

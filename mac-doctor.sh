@@ -1303,6 +1303,9 @@ echo -e "  ${DIM}Snapshot saved to: $SNAP_FILE${RESET}"
 echo -e "  ${DIM}Report generated:  $(date '+%Y-%m-%d %H:%M:%S')${RESET}"
 echo -e "  ${DIM}Run again:         ./mac-doctor.sh [--fix] [--html] [--no-snap]${RESET}"
 echo ""
+echo -e "  ${DIM}If Mac Doctor helped, consider supporting the project:${RESET}"
+echo -e "  ${DIM}  ☕  buymeacoffee.com/crazymahii${RESET}"
+echo ""
 
 # ════════════════════════════════════════════════════════════════════════════
 # INTERACTIVE FIX MODE
