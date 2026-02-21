@@ -64,6 +64,10 @@ IS_APPLE_SILICON=false
 # Snapshot state
 SNAP_LOADED=false
 
+# Health Score (calculated in final summary)
+HEALTH_SCORE=100
+SCORE_BADGE_CLASS="b-ok"
+
 # CURRENT_* variables captured during sections, written to snapshot at end
 CURRENT_mem_pct=0
 CURRENT_disk_pct=0
@@ -232,6 +236,7 @@ generate_html_report() {
 <div class="badges">
   <span class="badge b-crit">⚠ ${ISSUES_FOUND} Critical</span>
   <span class="badge b-warn">⚡ ${WARNINGS_FOUND} Warnings</span>
+  <span class="badge ${SCORE_BADGE_CLASS}">♥ Health Score: ${HEALTH_SCORE}/100</span>
   <span class="badge b-ok">${hw_model}</span>
   <span class="badge b-info">${cpu_brand} · ${total_ram_gb}GB RAM</span>
 </div>
@@ -368,12 +373,26 @@ ps aux | sort -t' ' -k3 -rn | head -10 | while read -r user pid cpu mem vsz rss 
 done
 
 echo ""
-runaway=$(ps aux | awk 'NR>1 && $3+0 > 100 {print $11, $3"%"}')
+runaway=$(ps aux | awk 'NR>1 && $3+0 > 100 && $11 != "kernel_task" {print $11, $3"%"}')
 if [ -n "$runaway" ]; then
     issue "Runaway processes detected (>100% CPU):"
     echo "$runaway" | head -5 | while IFS= read -r line; do
         echo -e "    ${RED}▸ $line${RESET}"
     done
+fi
+
+# ── kernel_task Explanation ───────────────────────────────────────────────────
+kt_cpu=$(ps aux | awk '/[k]ernel_task/ {sum+=$3} END {printf "%.0f", sum+0}')
+if (( kt_cpu > 200 )); then
+    echo ""
+    issue "kernel_task using ${kt_cpu}% CPU — your Mac is thermally throttling"
+    echo -e "  ${CYAN}  → kernel_task is NOT a runaway process. It is macOS's thermal${RESET}"
+    echo -e "  ${CYAN}    throttle guard — it deliberately slows the CPU when overheating.${RESET}"
+    echo -e "  ${CYAN}  → Fix: Move to a hard flat surface, check vents, reduce workload.${RESET}"
+elif (( kt_cpu > 100 )); then
+    echo ""
+    warn "kernel_task using ${kt_cpu}% CPU — moderate thermal throttling detected"
+    echo -e "  ${DIM}  → macOS is slowing your CPU due to heat. Try a cooler surface.${RESET}"
 fi
 
 _html_section_close
@@ -1280,6 +1299,29 @@ echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo -e "${BOLD}  DIAGNOSIS SUMMARY${RESET}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+echo ""
+
+# ── Health Score ──────────────────────────────────────────────────────────────
+HEALTH_SCORE=$(( 100 - ISSUES_FOUND * 10 - WARNINGS_FOUND * 3 ))
+[ $HEALTH_SCORE -lt 0 ] && HEALTH_SCORE=0
+
+if   (( HEALTH_SCORE >= 80 )); then SCORE_COLOR="${GREEN}";  SCORE_BADGE_CLASS="b-ok";   SCORE_LABEL="Healthy"
+elif (( HEALTH_SCORE >= 60 )); then SCORE_COLOR="${YELLOW}"; SCORE_BADGE_CLASS="b-warn";  SCORE_LABEL="Fair"
+elif (( HEALTH_SCORE >= 40 )); then SCORE_COLOR="${YELLOW}"; SCORE_BADGE_CLASS="b-warn";  SCORE_LABEL="Poor"
+else                                 SCORE_COLOR="${RED}";    SCORE_BADGE_CLASS="b-crit";  SCORE_LABEL="Critical"
+fi
+
+score_filled=$(( HEALTH_SCORE * 30 / 100 ))
+score_empty=$(( 30 - score_filled ))
+
+echo -e "  ${BOLD}MAC HEALTH SCORE${RESET}"
+printf "  %s%s" "$SCORE_COLOR" "${BOLD}"
+printf '%0.s█' $(seq 1 $score_filled 2>/dev/null) || true
+printf '%0.s░' $(seq 1 $score_empty  2>/dev/null) || true
+printf "${RESET}  ${SCORE_COLOR}${BOLD}%d / 100${RESET}  (%s)\n" "$HEALTH_SCORE" "$SCORE_LABEL"
+echo ""
+(( ISSUES_FOUND   > 0 )) && echo -e "  ${RED}    $ISSUES_FOUND critical issue(s)  × 10 pts = -$(( ISSUES_FOUND * 10 ))${RESET}"
+(( WARNINGS_FOUND > 0 )) && echo -e "  ${YELLOW}    $WARNINGS_FOUND warning(s)       ×  3 pts = -$(( WARNINGS_FOUND * 3 ))${RESET}"
 echo ""
 
 if (( ISSUES_FOUND == 0 && WARNINGS_FOUND == 0 )); then
