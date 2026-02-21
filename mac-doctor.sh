@@ -1315,7 +1315,7 @@ score_filled=$(( HEALTH_SCORE * 30 / 100 ))
 score_empty=$(( 30 - score_filled ))
 
 echo -e "  ${BOLD}MAC HEALTH SCORE${RESET}"
-printf "  %s%s" "$SCORE_COLOR" "${BOLD}"
+printf "  ${SCORE_COLOR}${BOLD}"
 printf '%0.s█' $(seq 1 $score_filled 2>/dev/null) || true
 printf '%0.s░' $(seq 1 $score_empty  2>/dev/null) || true
 printf "${RESET}  ${SCORE_COLOR}${BOLD}%d / 100${RESET}  (%s)\n" "$HEALTH_SCORE" "$SCORE_LABEL"
