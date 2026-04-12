@@ -25,7 +25,9 @@ for _arg in "$@"; do
         --html)    DO_HTML=true ;;
         --no-snap) DO_SNAP=false ;;
         --help)
-            echo "Usage: mac-doctor.sh [--fix] [--html] [--no-snap]"
+            echo "Mac Doctor — Granular macOS Performance Diagnostics"
+            echo ""
+            echo "Usage: mac-doctor [--fix] [--html] [--no-snap]"
             echo "  --fix      Offer to apply safe fixes after diagnosis"
             echo "  --html     Save an HTML report to ~/Desktop"
             echo "  --no-snap  Skip snapshot save/compare"
@@ -50,6 +52,11 @@ INFO="${CYAN}[INFO]${RESET}"
 # ── Global State ──────────────────────────────────────────────────────────────
 ISSUES_FOUND=0
 WARNINGS_FOUND=0
+
+# Findings accumulator — collects all issues/warnings for ranked summary
+# Format: "severity|section|message" (severity: 2=critical, 1=warning)
+FINDINGS=""
+CURRENT_SECTION=""
 
 # Fix queue — indexed array of "label|command" strings (bash 3.2 safe)
 FIX_ACTIONS=()
@@ -135,18 +142,27 @@ separator() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
     echo -e "${BOLD}  $1${RESET}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    # Track current section name for findings
+    CURRENT_SECTION="$1"
 }
 
 issue() {
     echo -e "  ${CRITICAL} $1"
     _html_row "critical" "[CRITICAL] $1"
     ISSUES_FOUND=$(( ISSUES_FOUND + 1 ))
+    # Strip ANSI codes from message for findings list
+    local clean_msg
+    clean_msg=$(echo "$1" | sed 's/\\033\[[0-9;]*m//g; s/\x1b\[[0-9;]*m//g')
+    FINDINGS="${FINDINGS}2|${CURRENT_SECTION}|${clean_msg}"$'\n'
 }
 
 warn() {
     echo -e "  ${WARNING} $1"
     _html_row "warn" "[WARNING] $1"
     WARNINGS_FOUND=$(( WARNINGS_FOUND + 1 ))
+    local clean_msg
+    clean_msg=$(echo "$1" | sed 's/\\033\[[0-9;]*m//g; s/\x1b\[[0-9;]*m//g')
+    FINDINGS="${FINDINGS}1|${CURRENT_SECTION}|${clean_msg}"$'\n'
 }
 
 ok() {
@@ -162,6 +178,7 @@ info() {
 bar_chart() {
     local value=$1 max=$2 width=30
     local filled=$(( value * width / max ))
+    (( filled > width )) && filled=$width
     local empty=$(( width - filled ))
     local color="${GREEN}"
     if   (( value * 100 / max > 80 )); then color="${RED}"
@@ -170,7 +187,9 @@ bar_chart() {
     printf "  ${color}["
     printf '%0.s█' $(seq 1 $filled 2>/dev/null) || true
     printf '%0.s░' $(seq 1 $empty  2>/dev/null) || true
-    printf "]${RESET} %d%%\n" $(( value * 100 / max ))
+    local pct=$(( value * 100 / max ))
+    (( pct > 100 )) && pct=100
+    printf "]${RESET} %d%%\n" "$pct"
 }
 
 add_fix() {
@@ -242,15 +261,15 @@ generate_html_report() {
 </div>
 <div id="toc"><strong>Sections</strong><br>
 <a href="#sec1">1. System Overview</a><a href="#sec2">2. Pending Updates</a>
-<a href="#sec3">3. CPU Analysis</a><a href="#sec4">4. Memory Analysis</a>
-<a href="#sec5">5. Disk Analysis</a><a href="#sec6">6. Thermal &amp; Power</a>
-<a href="#sec7">7. Sleep Blockers</a><a href="#sec8">8. Security Audit</a>
-<a href="#sec9">9. Background Processes</a><a href="#sec10">10. iCloud Sync</a>
-<a href="#sec11">11. Spotlight</a><a href="#sec12">12. Network &amp; WiFi</a>
-<a href="#sec13">13. GPU &amp; Graphics</a><a href="#sec14">14. Electron Apps</a>
-<a href="#sec15">15. Rosetta 2</a><a href="#sec16">16. Time Machine</a>
-<a href="#sec17">17. Kernel Health</a><a href="#sec18">18. Developer Env</a>
-<a href="#sec19">19. Storage</a><a href="#sec20">20. AI Tools &amp; Agents</a>
+<a href="#sec3">3. AI Tools &amp; Agents</a><a href="#sec4">4. CPU Analysis</a>
+<a href="#sec5">5. Memory Analysis</a><a href="#sec6">6. Disk Analysis</a>
+<a href="#sec7">7. Thermal &amp; Power</a><a href="#sec8">8. Sleep Blockers</a>
+<a href="#sec9">9. Security Audit</a><a href="#sec10">10. Background Processes</a>
+<a href="#sec11">11. iCloud Sync</a><a href="#sec12">12. Spotlight</a>
+<a href="#sec13">13. Network &amp; WiFi</a><a href="#sec14">14. GPU &amp; Graphics</a>
+<a href="#sec15">15. Electron Apps</a><a href="#sec16">16. Rosetta 2</a>
+<a href="#sec17">17. Time Machine</a><a href="#sec18">18. Kernel Health</a>
+<a href="#sec19">19. Developer Env</a><a href="#sec20">20. Storage</a>
 <a href="#sec21">21. Changes vs Last Run</a>
 </div>
 ${HTML_BODY}
@@ -300,6 +319,8 @@ if [ -z "$cpu_brand" ]; then
     cpu_brand=$(system_profiler SPHardwareDataType 2>/dev/null \
         | awk -F': ' '/Chip:/{gsub(/^[ \t]+/,"",$2); print $2}')
     IS_APPLE_SILICON=true
+elif echo "$cpu_brand" | grep -qi "apple"; then
+    IS_APPLE_SILICON=true
 else
     IS_APPLE_SILICON=false
 fi
@@ -345,10 +366,266 @@ fi
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 3. CPU ANALYSIS
+# 3. AI TOOLS & AGENTS
 # ════════════════════════════════════════════════════════════════════════════
-separator "3. CPU ANALYSIS"
-_html_section_open 3 "CPU Analysis"
+separator "3. AI TOOLS & AGENTS"
+_html_section_open 3 "AI Tools & Agents"
+
+ai_anything_found=false
+
+# ── Detect running AI processes & aggregate resource usage ────────────────
+_ai_tools=(
+    "Claude Desktop|/Applications/Claude.app"
+    "Claude Code|claude.*--output-format\|claude.*--permission-prompt"
+    "Ollama|/Applications/Ollama.app\|ollama serve"
+    "LM Studio|/Applications/LM Studio.app\|\.lmstudio"
+    "Cursor|/Applications/Cursor.app"
+    "GitHub Copilot|copilot"
+    "ChatGPT|com.openai.chat\|/Applications/ChatGPT.app"
+    "Windsurf|/Applications/Windsurf.app"
+    "Continue.dev|continue.*server"
+)
+
+# Collect all running AI tool data first (name|ram|cpu|cnt), sorted by RAM later
+_ai_running_data=""
+ai_total_ram=0
+ai_total_cpu_str="0"
+ai_total_procs=0
+
+for _entry in "${_ai_tools[@]}"; do
+    _name="${_entry%%|*}"
+    _pattern="${_entry##*|}"
+
+    _stats=$(ps aux | awk -v pat="$_pattern" '
+    NR==1 {next}
+    {
+        cmd=""
+        for(i=11;i<=NF;i++) cmd=cmd" "$i
+        if (cmd ~ pat && cmd !~ /awk/ && cmd !~ /grep/) {
+            cnt++; ram+=$6/1024; cpu+=$3
+        }
+    }
+    END { if (cnt+0>0) printf "%d|%.0f|%.1f", cnt, ram, cpu }')
+
+    [ -z "$_stats" ] && continue
+
+    ai_anything_found=true
+    _cnt="${_stats%%|*}";  _rest="${_stats#*|}"
+    _ram="${_rest%%|*}";   _cpu="${_rest##*|}"
+
+    ai_total_ram=$(( ai_total_ram + _ram ))
+    ai_total_procs=$(( ai_total_procs + _cnt ))
+    _ai_running_data="${_ai_running_data}${_name}|${_ram}|${_cpu}|${_cnt}"$'\n'
+done
+
+# ── Running AI Tools (sorted by RAM, descending) ────────────────────────
+echo ""
+echo -e "  ${BOLD}RUNNING AI TOOLS${RESET}"
+echo -e "  ${DIM}┌──────────────────────────────────────────────────────────┐${RESET}"
+
+if [ "$ai_anything_found" = "true" ]; then
+    printf "  ${DIM}│${RESET} %-22s %8s  %6s  %5s ${DIM}│${RESET}\n" "Tool" "RAM" "CPU%" "Procs"
+    echo -e "  ${DIM}├──────────────────────────────────────────────────────────┤${RESET}"
+
+    echo -n "$_ai_running_data" | sort -t'|' -k2 -rn | while IFS='|' read -r _name _ram _cpu _cnt; do
+        [ -z "$_name" ] && continue
+        # Build a mini bar for RAM (max 10 chars, scaled to 2000MB)
+        _bar_len=$(( _ram * 10 / 2000 ))
+        (( _bar_len > 10 )) && _bar_len=10
+        (( _bar_len < 1 && _ram > 0 )) && _bar_len=1
+        _bar=""
+        _i=0; while (( _i < _bar_len )); do _bar="${_bar}█"; _i=$((_i+1)); done
+        while (( _i < 10 )); do _bar="${_bar}░"; _i=$((_i+1)); done
+
+        if   (( _ram > 1000 )); then
+            printf "  ${DIM}│${RESET} ${RED}▸ %-20s${RESET} %5d MB  %5.1f%%  %4d ${DIM}│${RESET}\n" "$_name" "$_ram" "$_cpu" "$_cnt"
+            printf "  ${DIM}│${RESET}   ${RED}${_bar}${RESET}                                       ${DIM}│${RESET}\n"
+        elif (( _ram > 300  )); then
+            printf "  ${DIM}│${RESET} ${YELLOW}▸ %-20s${RESET} %5d MB  %5.1f%%  %4d ${DIM}│${RESET}\n" "$_name" "$_ram" "$_cpu" "$_cnt"
+            printf "  ${DIM}│${RESET}   ${YELLOW}${_bar}${RESET}                                       ${DIM}│${RESET}\n"
+        else
+            printf "  ${DIM}│${RESET}   %-20s %5d MB  %5.1f%%  %4d ${DIM}│${RESET}\n" "$_name" "$_ram" "$_cpu" "$_cnt"
+        fi
+    done
+
+    echo -e "  ${DIM}├──────────────────────────────────────────────────────────┤${RESET}"
+    printf "  ${DIM}│${RESET} ${BOLD}%-22s %5d MB          %4d${RESET} ${DIM}│${RESET}\n" "TOTAL" "$ai_total_ram" "$ai_total_procs"
+    echo -e "  ${DIM}└──────────────────────────────────────────────────────────┘${RESET}"
+    echo ""
+    if   (( ai_total_ram > 4000 )); then issue "AI tools consuming ${ai_total_ram}MB RAM! Significant resource usage."
+    elif (( ai_total_ram > 2000 )); then warn  "AI tools using ${ai_total_ram}MB RAM."
+    elif (( ai_total_ram > 0    )); then ok    "AI tool memory footprint is reasonable (${ai_total_ram}MB)."
+    fi
+else
+    echo -e "  ${DIM}│${RESET}   No AI tools currently running.                         ${DIM}│${RESET}"
+    echo -e "  ${DIM}└──────────────────────────────────────────────────────────┘${RESET}"
+fi
+
+# ── Local Model Storage ──────────────────────────────────────────────────
+echo ""
+echo -e "  ${BOLD}LOCAL MODEL STORAGE${RESET}"
+echo -e "  ${DIM}┌──────────────────────────────────────────────────────────┐${RESET}"
+
+ai_model_disk=0
+_model_lines=""
+
+# Ollama models
+if [ -d "$HOME/.ollama/models" ]; then
+    ollama_size=$(du -sh "$HOME/.ollama/models" 2>/dev/null | awk '{print $1}')
+    ollama_kb=$(du -s "$HOME/.ollama/models" 2>/dev/null | awk '{print $1}' || echo "0")
+    ai_model_disk=$(( ai_model_disk + ollama_kb ))
+    ollama_model_count=$(ls "$HOME/.ollama/models/manifests/registry.ollama.ai/library/" 2>/dev/null | wc -l | tr -d ' ')
+    ollama_model_list=$(ls "$HOME/.ollama/models/manifests/registry.ollama.ai/library/" 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+    printf "  ${DIM}│${RESET}   %-20s  ${BOLD}%8s${RESET}  (%s models)          ${DIM}│${RESET}\n" "Ollama" "$ollama_size" "$ollama_model_count"
+    [ -n "$ollama_model_list" ] && printf "  ${DIM}│     Models: %s│${RESET}\n" "$(printf '%-43s' "$ollama_model_list")"
+fi
+
+# LM Studio models
+if [ -d "$HOME/.lmstudio/models" ]; then
+    lms_size=$(du -sh "$HOME/.lmstudio" 2>/dev/null | awk '{print $1}')
+    lms_kb=$(du -s "$HOME/.lmstudio" 2>/dev/null | awk '{print $1}' || echo "0")
+    ai_model_disk=$(( ai_model_disk + lms_kb ))
+    lms_count=$(find "$HOME/.lmstudio/models" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | wc -l | tr -d ' ')
+    printf "  ${DIM}│${RESET}   %-20s  ${BOLD}%8s${RESET}  (%s models)          ${DIM}│${RESET}\n" "LM Studio" "$lms_size" "$lms_count"
+fi
+
+# Hugging Face cache
+if [ -d "$HOME/.cache/huggingface" ]; then
+    hf_size=$(du -sh "$HOME/.cache/huggingface" 2>/dev/null | awk '{print $1}')
+    hf_kb=$(du -s "$HOME/.cache/huggingface" 2>/dev/null | awk '{print $1}' || echo "0")
+    ai_model_disk=$(( ai_model_disk + hf_kb ))
+    printf "  ${DIM}│${RESET}   %-20s  ${BOLD}%8s${RESET}                       ${DIM}│${RESET}\n" "HuggingFace cache" "$hf_size"
+fi
+
+# GPT4All models
+if [ -d "$HOME/Library/Application Support/nomic.ai" ]; then
+    gpt4all_size=$(du -sh "$HOME/Library/Application Support/nomic.ai" 2>/dev/null | awk '{print $1}')
+    gpt4all_kb=$(du -s "$HOME/Library/Application Support/nomic.ai" 2>/dev/null | awk '{print $1}' || echo "0")
+    ai_model_disk=$(( ai_model_disk + gpt4all_kb ))
+    printf "  ${DIM}│${RESET}   %-20s  ${BOLD}%8s${RESET}                       ${DIM}│${RESET}\n" "GPT4All" "$gpt4all_size"
+fi
+
+ai_model_disk_gb=$(( ai_model_disk / 1048576 ))
+if (( ai_model_disk > 0 )); then
+    echo -e "  ${DIM}├──────────────────────────────────────────────────────────┤${RESET}"
+    printf "  ${DIM}│${RESET} ${BOLD}%-22s %8s${RESET}                       ${DIM}│${RESET}\n" "TOTAL" "${ai_model_disk_gb}GB"
+    echo -e "  ${DIM}└──────────────────────────────────────────────────────────┘${RESET}"
+    echo ""
+    # Disk bar for model storage
+    _mdisk_bar_len=$(( ai_model_disk_gb * 20 / 200 ))
+    (( _mdisk_bar_len > 20 )) && _mdisk_bar_len=20
+    (( _mdisk_bar_len < 1 )) && _mdisk_bar_len=1
+    _mdisk_bar=""; _mi=0
+    while (( _mi < _mdisk_bar_len )); do _mdisk_bar="${_mdisk_bar}█"; _mi=$((_mi+1)); done
+    while (( _mi < 20 )); do _mdisk_bar="${_mdisk_bar}░"; _mi=$((_mi+1)); done
+    if   (( ai_model_disk_gb > 100 )); then
+        echo -e "  ${RED}${_mdisk_bar}${RESET}  ${ai_model_disk_gb}GB"
+        warn "AI models using ${ai_model_disk_gb}GB disk — consider removing unused models."
+    elif (( ai_model_disk_gb > 50 )); then
+        echo -e "  ${YELLOW}${_mdisk_bar}${RESET}  ${ai_model_disk_gb}GB"
+        warn "AI models using ${ai_model_disk_gb}GB disk."
+    elif (( ai_model_disk_gb > 0 )); then
+        echo -e "  ${GREEN}${_mdisk_bar}${RESET}  ${ai_model_disk_gb}GB"
+        ok "AI model disk usage: ~${ai_model_disk_gb}GB"
+    else
+        ok "AI model disk usage is minimal."
+    fi
+else
+    echo -e "  ${DIM}│${RESET}   No local AI models found.                              ${DIM}│${RESET}"
+    echo -e "  ${DIM}└──────────────────────────────────────────────────────────┘${RESET}"
+fi
+
+# ── AI Tool Data & Usage ────────────────────────────────────────────────
+_ai_data_found=false
+_ai_data_lines=""
+
+# Claude Code data dir
+claude_dir_size=""
+claude_dir_kb=0
+if [ -d "$HOME/.claude" ]; then
+    claude_dir_size=$(du -sh "$HOME/.claude" 2>/dev/null | awk '{print $1}')
+    claude_dir_kb=$(du -s "$HOME/.claude" 2>/dev/null | awk '{print $1}' || echo "0")
+    _ai_data_found=true
+fi
+
+# Claude Desktop data
+claude_desk_size=""
+claude_desk_kb=0
+claude_desktop_dir="$HOME/Library/Application Support/Claude"
+if [ -d "$claude_desktop_dir" ]; then
+    claude_desk_size=$(du -sh "$claude_desktop_dir" 2>/dev/null | awk '{print $1}')
+    claude_desk_kb=$(du -s "$claude_desktop_dir" 2>/dev/null | awk '{print $1}' || echo "0")
+    _ai_data_found=true
+fi
+
+# Cursor AI data
+cursor_total_mb=0
+if [ -d "$HOME/.cursor" ] || [ -d "$HOME/Library/Application Support/Cursor" ]; then
+    cursor_size_1=$(du -s "$HOME/.cursor" 2>/dev/null | awk '{print $1}' || echo "0")
+    cursor_size_2=$(du -s "$HOME/Library/Application Support/Cursor" 2>/dev/null | awk '{print $1}' || echo "0")
+    cursor_total_kb=$(( cursor_size_1 + cursor_size_2 ))
+    cursor_total_mb=$(( cursor_total_kb / 1024 ))
+    _ai_data_found=true
+fi
+
+if [ "$_ai_data_found" = "true" ]; then
+    echo ""
+    echo -e "  ${BOLD}AI TOOL DATA${RESET}"
+    echo -e "  ${DIM}┌──────────────────────────────────────────────────────────┐${RESET}"
+    [ -n "$claude_dir_size"  ] && printf "  ${DIM}│${RESET}   %-20s  ${BOLD}%8s${RESET}   ~/.claude              ${DIM}│${RESET}\n" "Claude Code" "$claude_dir_size"
+    [ -n "$claude_desk_size" ] && printf "  ${DIM}│${RESET}   %-20s  ${BOLD}%8s${RESET}   ~/Library/App Support  ${DIM}│${RESET}\n" "Claude Desktop" "$claude_desk_size"
+    (( cursor_total_mb > 0 ))  && printf "  ${DIM}│${RESET}   %-20s  ${BOLD}%5dMB${RESET}   ~/.cursor + App Support${DIM}│${RESET}\n" "Cursor AI" "$cursor_total_mb"
+    echo -e "  ${DIM}└──────────────────────────────────────────────────────────┘${RESET}"
+fi
+
+# ── Claude Code Usage Stats ──────────────────────────────────────────────
+claude_stats_file="$HOME/.claude/stats-cache.json"
+if [ -f "$claude_stats_file" ]; then
+    cc_stats=$(python3 -c "
+import json, sys
+with open('$claude_stats_file') as f:
+    data = json.load(f)
+daily = data.get('dailyActivity', [])
+total_msgs = sum(d.get('messageCount', 0) for d in daily)
+total_sess = sum(d.get('sessionCount', 0) for d in daily)
+total_tool = sum(d.get('toolCallCount', 0) for d in daily)
+days = len(daily)
+recent = daily[-7:] if len(daily) >= 7 else daily
+recent_msgs = sum(d.get('messageCount', 0) for d in recent)
+recent_sess = sum(d.get('sessionCount', 0) for d in recent)
+recent_tool = sum(d.get('toolCallCount', 0) for d in recent)
+first = daily[0]['date'] if daily else '?'
+last  = daily[-1]['date'] if daily else '?'
+avg_msgs = total_msgs // days if days > 0 else 0
+print(f'{total_msgs}|{total_sess}|{total_tool}|{days}|{first}|{last}|{recent_msgs}|{recent_sess}|{recent_tool}|{avg_msgs}')
+" 2>/dev/null || echo "")
+
+    if [ -n "$cc_stats" ]; then
+        IFS='|' read -r cc_msgs cc_sess cc_tools cc_days cc_first cc_last cc_rmsg cc_rsess cc_rtool cc_avg <<< "$cc_stats"
+
+        echo ""
+        echo -e "  ${BOLD}CLAUDE CODE ACTIVITY${RESET}"
+        echo -e "  ${DIM}┌──────────────────────────────────────────────────────────┐${RESET}"
+        printf "  ${DIM}│${RESET}   Messages:  ${BOLD}%-8s${RESET}  Sessions:  ${BOLD}%-6s${RESET}              ${DIM}│${RESET}\n" "$cc_msgs" "$cc_sess"
+        printf "  ${DIM}│${RESET}   Tool calls: ${BOLD}%-7s${RESET}  Active days: ${BOLD}%-4s${RESET}            ${DIM}│${RESET}\n" "$cc_tools" "$cc_days"
+        printf "  ${DIM}│${RESET}   Period:     ${BOLD}%s → %s${RESET}                  ${DIM}│${RESET}\n" "$cc_first" "$cc_last"
+        printf "  ${DIM}│${RESET}   Avg msgs/day: ${BOLD}%-6s${RESET}                                ${DIM}│${RESET}\n" "$cc_avg"
+        echo -e "  ${DIM}├──────────────────────────────────────────────────────────┤${RESET}"
+        printf "  ${DIM}│${RESET}   Last 7 active days:                                  ${DIM}│${RESET}\n"
+        printf "  ${DIM}│${RESET}     ${BOLD}%s${RESET} msgs   ${BOLD}%s${RESET} sessions   ${BOLD}%s${RESET} tool calls       ${DIM}│${RESET}\n" "$cc_rmsg" "$cc_rsess" "$cc_rtool"
+        echo -e "  ${DIM}└──────────────────────────────────────────────────────────┘${RESET}"
+
+        (( cc_avg > 500 )) && info "  Power user — averaging ${cc_avg} messages/active day."
+    fi
+fi
+
+_html_section_close
+
+# ════════════════════════════════════════════════════════════════════════════
+# 4. CPU ANALYSIS
+# ════════════════════════════════════════════════════════════════════════════
+separator "4. CPU ANALYSIS"
+_html_section_open 4 "CPU Analysis"
 
 load_avg=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')
 load_int=${load_avg%%.*}
@@ -399,10 +676,10 @@ fi
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 4. MEMORY ANALYSIS
+# 5. MEMORY ANALYSIS
 # ════════════════════════════════════════════════════════════════════════════
-separator "4. MEMORY ANALYSIS"
-_html_section_open 4 "Memory Analysis"
+separator "5. MEMORY ANALYSIS"
+_html_section_open 5 "Memory Analysis"
 
 vm_stat_output=$(vm_stat)
 page_size=$(echo "$vm_stat_output" | head -1 | grep -oE '[0-9]+')
@@ -497,10 +774,10 @@ done
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 5. DISK ANALYSIS
+# 6. DISK ANALYSIS
 # ════════════════════════════════════════════════════════════════════════════
-separator "5. DISK ANALYSIS"
-_html_section_open 5 "Disk Analysis"
+separator "6. DISK ANALYSIS"
+_html_section_open 6 "Disk Analysis"
 
 disk_info=$(df -H / | tail -1)
 disk_total=$(echo "$disk_info" | awk '{print $2}')
@@ -529,7 +806,8 @@ echo ""
 info "Space breakdown:"
 echo -e "  ${DIM}──────────────────────────────────────────────────────────${RESET}"
 downloads_size=$(du -sh ~/Downloads 2>/dev/null | awk '{print $1}' || echo "N/A")
-trash_size=$(du -sh ~/.Trash 2>/dev/null | awk '{print $1}' || echo "N/A")
+trash_size=$(du -sh ~/.Trash 2>/dev/null | awk '{print $1}' || echo "0B")
+[ -z "$trash_size" ] && trash_size="0B"
 caches_size=$(du -sh ~/Library/Caches 2>/dev/null | awk '{print $1}' || echo "N/A")
 logs_size=$(du -sh ~/Library/Logs 2>/dev/null | awk '{print $1}' || echo "N/A")
 photos_size=$(du -sh ~/Pictures/Photos\ Library.photoslibrary 2>/dev/null | awk '{print $1}' || echo "")
@@ -562,10 +840,10 @@ purgeable=$(diskutil info / 2>/dev/null | awk -F': ' '/Purgeable/{gsub(/^[ \t]+/
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 6. THERMAL & POWER STATE
+# 7. THERMAL & POWER STATE
 # ════════════════════════════════════════════════════════════════════════════
-separator "6. THERMAL & POWER STATE"
-_html_section_open 6 "Thermal & Power"
+separator "7. THERMAL & POWER STATE"
+_html_section_open 7 "Thermal & Power"
 
 thermal=$(pmset -g therm 2>/dev/null || echo "")
 if echo "$thermal" | grep -qi "speed limit"; then
@@ -602,10 +880,10 @@ echo "$battery_info" | grep -qi "discharging" && warn "Running on battery. macOS
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 7. SLEEP BLOCKERS
+# 8. SLEEP BLOCKERS
 # ════════════════════════════════════════════════════════════════════════════
-separator "7. SLEEP BLOCKERS"
-_html_section_open 7 "Sleep Blockers"
+separator "8. SLEEP BLOCKERS"
+_html_section_open 8 "Sleep Blockers"
 
 pmset_out=$(pmset -g assertions 2>/dev/null || echo "")
 
@@ -624,10 +902,10 @@ if [ -z "$sleep_blockers" ]; then
     ok "No rogue sleep blockers detected."
 else
     warn "Process(es) are preventing your Mac from sleeping:"
-    echo "$sleep_blockers" | while IFS='|' read -r pid pname reason; do
+    while IFS='|' read -r pid pname reason; do
         echo -e "    ${YELLOW}▸ ${BOLD}${pname}${RESET} (PID $pid) — \"$reason\""
         add_fix "Kill sleep blocker: $pname (PID $pid)|kill $pid && echo 'Killed $pname'"
-    done
+    done <<< "$sleep_blockers"
     info "  Tip: Sleep blockers drain battery and generate heat even when screen is off."
 fi
 
@@ -649,10 +927,10 @@ fi
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 8. SECURITY AUDIT
+# 9. SECURITY AUDIT
 # ════════════════════════════════════════════════════════════════════════════
-separator "8. SECURITY AUDIT"
-_html_section_open 8 "Security Audit"
+separator "9. SECURITY AUDIT"
+_html_section_open 9 "Security Audit"
 
 # FileVault
 fv_status=$(fdesetup status 2>/dev/null | awk '{print tolower($0)}')
@@ -697,10 +975,10 @@ xp_ver=$(system_profiler SPInstallHistoryDataType 2>/dev/null \
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 9. BACKGROUND PROCESSES & LAUNCH AGENTS
+# 10. BACKGROUND PROCESSES & LAUNCH AGENTS
 # ════════════════════════════════════════════════════════════════════════════
-separator "9. BACKGROUND PROCESSES & LAUNCH AGENTS"
-_html_section_open 9 "Background Processes"
+separator "10. BACKGROUND PROCESSES & LAUNCH AGENTS"
+_html_section_open 10 "Background Processes"
 
 total_procs=$(ps aux | wc -l | tr -d ' ')
 CURRENT_processes="$total_procs"
@@ -751,10 +1029,10 @@ fi
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 10. ICLOUD SYNC STATUS
+# 11. ICLOUD SYNC STATUS
 # ════════════════════════════════════════════════════════════════════════════
-separator "10. ICLOUD SYNC STATUS"
-_html_section_open 10 "iCloud Sync"
+separator "11. ICLOUD SYNC STATUS"
+_html_section_open 11 "iCloud Sync"
 
 brctl_raw=$(brctl status 2>/dev/null || echo "")
 if [ -z "$brctl_raw" ]; then
@@ -780,12 +1058,22 @@ else
     # Stalled check: look for containers that haven't synced in a very long time
     # brctl obfuscates bundle IDs, so we count lines with old dates (before last month)
     # Using a simple heuristic: last-sync more than 30 days old
-    old_sync=$(echo "$brctl_raw" | grep "last-sync" | awk '{
+    cur_year=$(date +%Y)
+    cur_month=$(date +%m)
+    # Threshold: anything older than last month is considered stale
+    if (( cur_month > 1 )); then
+        thresh_year=$cur_year
+        thresh_month=$(( cur_month - 1 ))
+    else
+        thresh_year=$(( cur_year - 1 ))
+        thresh_month=12
+    fi
+    old_sync=$(echo "$brctl_raw" | grep "last-sync" | awk -v ty="$thresh_year" -v tm="$thresh_month" '{
         match($0, /last-sync:[0-9]{4}-[0-9]{2}/)
         if (RSTART > 0) {
             year  = substr($0, RSTART+11, 4)+0
             month = substr($0, RSTART+16, 2)+0
-            if (year < 2026 || (year == 2026 && month < 1)) cnt++
+            if (year < ty || (year == ty && month < tm)) cnt++
         }
     } END {print cnt+0}')
     (( old_sync > 3 )) && warn "$old_sync containers have not synced since before last month. iCloud may be stalled."
@@ -794,10 +1082,10 @@ fi
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 11. SPOTLIGHT INDEXING
+# 12. SPOTLIGHT INDEXING
 # ════════════════════════════════════════════════════════════════════════════
-separator "11. SPOTLIGHT INDEXING"
-_html_section_open 11 "Spotlight"
+separator "12. SPOTLIGHT INDEXING"
+_html_section_open 12 "Spotlight"
 
 mdutil_status=$(mdutil -s / 2>/dev/null || echo "")
 if echo "$mdutil_status" | grep -qi "enabled"; then
@@ -816,10 +1104,10 @@ fi
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 12. NETWORK & WIFI DIAGNOSTICS
+# 13. NETWORK & WIFI DIAGNOSTICS
 # ════════════════════════════════════════════════════════════════════════════
-separator "12. NETWORK & WIFI DIAGNOSTICS"
-_html_section_open 12 "Network & WiFi"
+separator "13. NETWORK & WIFI DIAGNOSTICS"
+_html_section_open 13 "Network & WiFi"
 
 active_iface=$(route get default 2>/dev/null | awk '/interface:/{print $2}' || echo "")
 if [ -n "$active_iface" ]; then
@@ -909,10 +1197,10 @@ done
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 13. GPU & GRAPHICS
+# 14. GPU & GRAPHICS
 # ════════════════════════════════════════════════════════════════════════════
-separator "13. GPU & GRAPHICS"
-_html_section_open 13 "GPU & Graphics"
+separator "14. GPU & GRAPHICS"
+_html_section_open 14 "GPU & Graphics"
 
 ws_cpu=$(ps aux | awk '/[W]indowServer/{print $3; exit}')
 ws_mem=$(ps aux | awk '/[W]indowServer/{print $6; exit}')
@@ -935,10 +1223,10 @@ info "Open GUI applications: ${BOLD}$open_apps${RESET}"
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 14. ELECTRON APP ANALYSIS
+# 15. ELECTRON APP ANALYSIS
 # ════════════════════════════════════════════════════════════════════════════
-separator "14. ELECTRON & CHROMIUM APP ANALYSIS"
-_html_section_open 14 "Electron App Analysis"
+separator "15. ELECTRON & CHROMIUM APP ANALYSIS"
+_html_section_open 15 "Electron App Analysis"
 
 info "Grouping Electron/Chromium-based helper processes by app bundle..."
 echo ""
@@ -1029,10 +1317,10 @@ fi
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 15. ROSETTA 2 (APPLE SILICON ONLY)
+# 16. ROSETTA 2 (APPLE SILICON ONLY)
 # ════════════════════════════════════════════════════════════════════════════
-separator "15. ROSETTA 2 (x86 TRANSLATION)"
-_html_section_open 15 "Rosetta 2"
+separator "16. ROSETTA 2 (x86 TRANSLATION)"
+_html_section_open 16 "Rosetta 2"
 
 if [ "$IS_APPLE_SILICON" = "true" ]; then
     oahd_pid=$(ps aux | awk '/\/usr\/libexec\/rosetta\/oahd/ && !/awk/ {print $2; exit}')
@@ -1053,7 +1341,8 @@ if [ "$IS_APPLE_SILICON" = "true" ]; then
         /Arch=X86_64/ { if (curr_app != "") print curr_app }
         ' | sort -u)
 
-        x86_count=$(echo "$x86_apps" | grep -c "." || echo "0")
+        x86_count=0
+        [ -n "$x86_apps" ] && x86_count=$(echo "$x86_apps" | wc -l | tr -d ' ')
         if (( x86_count > 0 )); then
             warn "$x86_count app(s) running under Rosetta 2 (x86 emulation adds ~15-30% overhead):"
             echo "$x86_apps" | head -10 | while IFS= read -r app; do
@@ -1072,10 +1361,10 @@ fi
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 16. TIME MACHINE
+# 17. TIME MACHINE
 # ════════════════════════════════════════════════════════════════════════════
-separator "16. TIME MACHINE"
-_html_section_open 16 "Time Machine"
+separator "17. TIME MACHINE"
+_html_section_open 17 "Time Machine"
 
 tm_status=$(tmutil status 2>/dev/null || echo "")
 if echo "$tm_status" | grep -q "Running = 1"; then
@@ -1091,10 +1380,10 @@ fi
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 17. KERNEL & SYSTEM HEALTH
+# 18. KERNEL & SYSTEM HEALTH
 # ════════════════════════════════════════════════════════════════════════════
-separator "17. KERNEL & SYSTEM HEALTH"
-_html_section_open 17 "Kernel & System Health"
+separator "18. KERNEL & SYSTEM HEALTH"
+_html_section_open 18 "Kernel & System Health"
 
 panic_count=$(find /Library/Logs/DiagnosticReports -name "*.panic" -mtime -7 2>/dev/null | wc -l | tr -d ' ')
 if (( panic_count > 0 )); then
@@ -1113,10 +1402,10 @@ fi
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 18. DEVELOPER ENVIRONMENT
+# 19. DEVELOPER ENVIRONMENT
 # ════════════════════════════════════════════════════════════════════════════
-separator "18. DEVELOPER ENVIRONMENT"
-_html_section_open 18 "Developer Environment"
+separator "19. DEVELOPER ENVIRONMENT"
+_html_section_open 19 "Developer Environment"
 
 dev_anything_found=false
 
@@ -1201,10 +1490,10 @@ $dev_anything_found || info "No notable developer toolchain overhead detected."
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 19. STORAGE OPTIMIZATION
+# 20. STORAGE OPTIMIZATION
 # ════════════════════════════════════════════════════════════════════════════
-separator "19. STORAGE OPTIMIZATION"
-_html_section_open 19 "Storage Optimization"
+separator "20. STORAGE OPTIMIZATION"
+_html_section_open 20 "Storage Optimization"
 
 # Xcode DerivedData already shown in section 18, skip here if large
 # Docker disk (if not already shown in 18)
@@ -1235,197 +1524,6 @@ appsupp_size=$(du -sh ~/Library/Application\ Support 2>/dev/null | awk '{print $
 
 _html_section_close
 
-# ════════════════════════════════════════════════════════════════════════════
-# 20. AI TOOLS & AGENTS
-# ════════════════════════════════════════════════════════════════════════════
-separator "20. AI TOOLS & AGENTS"
-_html_section_open 20 "AI Tools & Agents"
-
-ai_anything_found=false
-
-# ── Detect running AI processes & aggregate resource usage ────────────────
-# Each tool: name|grep_pattern|data_dir (optional)
-_ai_tools=(
-    "Claude Desktop|/Applications/Claude.app"
-    "Claude Code|claude.*--output-format\|claude.*--permission-prompt"
-    "Ollama|/Applications/Ollama.app\|ollama serve"
-    "LM Studio|/Applications/LM Studio.app\|\.lmstudio"
-    "Cursor|/Applications/Cursor.app"
-    "GitHub Copilot|copilot"
-    "ChatGPT|com.openai.chat\|/Applications/ChatGPT.app"
-    "Windsurf|/Applications/Windsurf.app"
-    "Continue.dev|continue.*server"
-)
-
-info "Running AI tools:"
-echo -e "  ${DIM}──────────────────────────────────────────────────────────${RESET}"
-printf "  %-22s %8s  %6s  %5s\n" "Tool" "RAM" "CPU%" "Procs"
-echo -e "  ${DIM}──────────────────────────────────────────────────────────${RESET}"
-
-ai_total_ram=0
-ai_total_cpu=0
-ai_total_procs=0
-
-for _entry in "${_ai_tools[@]}"; do
-    _name="${_entry%%|*}"
-    _pattern="${_entry##*|}"
-
-    _stats=$(ps aux | awk -v pat="$_pattern" '
-    NR==1 {next}
-    {
-        cmd=""
-        for(i=11;i<=NF;i++) cmd=cmd" "$i
-        if (cmd ~ pat && cmd !~ /awk/ && cmd !~ /grep/) {
-            cnt++; ram+=$6/1024; cpu+=$3
-        }
-    }
-    END { if (cnt+0>0) printf "%d|%.0f|%.1f", cnt, ram, cpu }')
-
-    [ -z "$_stats" ] && continue
-
-    ai_anything_found=true
-    _cnt="${_stats%%|*}";  _rest="${_stats#*|}"
-    _ram="${_rest%%|*}";   _cpu="${_rest##*|}"
-
-    ai_total_ram=$(( ai_total_ram + _ram ))
-    ai_total_procs=$(( ai_total_procs + _cnt ))
-    # cpu is float — accumulate via awk later
-
-    if   (( _ram > 1000 )); then
-        printf "  ${RED}▸ %-20s${RESET}  %5d MB  %5.1f%%  %4d\n" "$_name" "$_ram" "$_cpu" "$_cnt"
-    elif (( _ram > 300  )); then
-        printf "  ${YELLOW}▸ %-20s${RESET}  %5d MB  %5.1f%%  %4d\n" "$_name" "$_ram" "$_cpu" "$_cnt"
-    else
-        printf "    %-20s  %5d MB  %5.1f%%  %4d\n" "$_name" "$_ram" "$_cpu" "$_cnt"
-    fi
-done
-
-if [ "$ai_anything_found" = "true" ]; then
-    echo -e "  ${DIM}──────────────────────────────────────────────────────────${RESET}"
-    printf "  %-22s %5d MB          %4d\n" "TOTAL" "$ai_total_ram" "$ai_total_procs"
-    echo ""
-    if   (( ai_total_ram > 4000 )); then issue "AI tools consuming ${ai_total_ram}MB RAM! Significant resource usage."
-    elif (( ai_total_ram > 2000 )); then warn  "AI tools using ${ai_total_ram}MB RAM."
-    elif (( ai_total_ram > 0    )); then ok    "AI tool memory footprint is reasonable (${ai_total_ram}MB)."
-    fi
-else
-    info "  No AI tools currently running."
-fi
-
-# ── Local Model Storage ──────────────────────────────────────────────────
-echo ""
-info "Local AI model storage:"
-echo -e "  ${DIM}──────────────────────────────────────────────────────────${RESET}"
-
-ai_model_disk=0
-
-# Ollama models
-if [ -d "$HOME/.ollama/models" ]; then
-    ollama_size=$(du -sh "$HOME/.ollama/models" 2>/dev/null | awk '{print $1}')
-    ollama_kb=$(du -s "$HOME/.ollama/models" 2>/dev/null | awk '{print $1}' || echo "0")
-    ai_model_disk=$(( ai_model_disk + ollama_kb ))
-    ollama_model_list=$(ls "$HOME/.ollama/models/manifests/registry.ollama.ai/library/" 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
-    info "  Ollama models:     ${BOLD}$ollama_size${RESET}"
-    [ -n "$ollama_model_list" ] && echo -e "  ${DIM}    Models: $ollama_model_list${RESET}"
-fi
-
-# LM Studio models
-if [ -d "$HOME/.lmstudio/models" ]; then
-    lms_size=$(du -sh "$HOME/.lmstudio" 2>/dev/null | awk '{print $1}')
-    lms_kb=$(du -s "$HOME/.lmstudio" 2>/dev/null | awk '{print $1}' || echo "0")
-    ai_model_disk=$(( ai_model_disk + lms_kb ))
-    lms_count=$(find "$HOME/.lmstudio/models" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | wc -l | tr -d ' ')
-    info "  LM Studio models:  ${BOLD}$lms_size${RESET} (${lms_count} models)"
-fi
-
-# Hugging Face cache
-if [ -d "$HOME/.cache/huggingface" ]; then
-    hf_size=$(du -sh "$HOME/.cache/huggingface" 2>/dev/null | awk '{print $1}')
-    hf_kb=$(du -s "$HOME/.cache/huggingface" 2>/dev/null | awk '{print $1}' || echo "0")
-    ai_model_disk=$(( ai_model_disk + hf_kb ))
-    info "  HuggingFace cache: ${BOLD}$hf_size${RESET}"
-fi
-
-# GPT4All models
-if [ -d "$HOME/Library/Application Support/nomic.ai" ]; then
-    gpt4all_size=$(du -sh "$HOME/Library/Application Support/nomic.ai" 2>/dev/null | awk '{print $1}')
-    gpt4all_kb=$(du -s "$HOME/Library/Application Support/nomic.ai" 2>/dev/null | awk '{print $1}' || echo "0")
-    ai_model_disk=$(( ai_model_disk + gpt4all_kb ))
-    info "  GPT4All models:    ${BOLD}$gpt4all_size${RESET}"
-fi
-
-ai_model_disk_gb=$(( ai_model_disk / 1048576 ))
-if (( ai_model_disk > 0 )); then
-    echo ""
-    if   (( ai_model_disk_gb > 100 )); then warn "AI models using ${ai_model_disk_gb}GB disk — consider removing unused models."
-    elif (( ai_model_disk_gb > 50  )); then warn "AI models using ${ai_model_disk_gb}GB disk."
-    elif (( ai_model_disk_gb > 0   )); then ok   "AI model disk usage: ~${ai_model_disk_gb}GB"
-    else                                    ok   "AI model disk usage is minimal."
-    fi
-fi
-
-# ── Claude Code Usage Stats ──────────────────────────────────────────────
-claude_stats_file="$HOME/.claude/stats-cache.json"
-if [ -f "$claude_stats_file" ]; then
-    echo ""
-    info "Claude Code usage history:"
-    echo -e "  ${DIM}──────────────────────────────────────────────────────────${RESET}"
-
-    cc_stats=$(python3 -c "
-import json, sys
-with open('$claude_stats_file') as f:
-    data = json.load(f)
-daily = data.get('dailyActivity', [])
-total_msgs = sum(d.get('messageCount', 0) for d in daily)
-total_sess = sum(d.get('sessionCount', 0) for d in daily)
-total_tool = sum(d.get('toolCallCount', 0) for d in daily)
-days = len(daily)
-# Last 7 days activity
-recent = daily[-7:] if len(daily) >= 7 else daily
-recent_msgs = sum(d.get('messageCount', 0) for d in recent)
-recent_sess = sum(d.get('sessionCount', 0) for d in recent)
-recent_tool = sum(d.get('toolCallCount', 0) for d in recent)
-first = daily[0]['date'] if daily else '?'
-last  = daily[-1]['date'] if daily else '?'
-avg_msgs = total_msgs // days if days > 0 else 0
-print(f'{total_msgs}|{total_sess}|{total_tool}|{days}|{first}|{last}|{recent_msgs}|{recent_sess}|{recent_tool}|{avg_msgs}')
-" 2>/dev/null || echo "")
-
-    if [ -n "$cc_stats" ]; then
-        IFS='|' read -r cc_msgs cc_sess cc_tools cc_days cc_first cc_last cc_rmsg cc_rsess cc_rtool cc_avg <<< "$cc_stats"
-
-        info "  Total messages:    ${BOLD}${cc_msgs}${RESET} across ${cc_sess} sessions"
-        info "  Tool calls:        ${BOLD}${cc_tools}${RESET}"
-        info "  Active days:       ${BOLD}${cc_days}${RESET}  (${cc_first} → ${cc_last})"
-        info "  Avg msgs/day:      ${BOLD}${cc_avg}${RESET}"
-        echo ""
-        info "  Last 7 active days: ${BOLD}${cc_rmsg}${RESET} messages, ${cc_rsess} sessions, ${cc_rtool} tool calls"
-
-        (( cc_avg > 500 )) && info "  Heavy Claude Code user — averaging ${cc_avg} messages/active day."
-    fi
-
-    # Claude Code data dir size
-    claude_dir_size=$(du -sh "$HOME/.claude" 2>/dev/null | awk '{print $1}')
-    [ -n "$claude_dir_size" ] && info "  Claude Code data:  ${BOLD}$claude_dir_size${RESET} (~/.claude)"
-fi
-
-# ── Claude Desktop data ──────────────────────────────────────────────────
-claude_desktop_dir="$HOME/Library/Application Support/Claude"
-if [ -d "$claude_desktop_dir" ]; then
-    claude_desk_size=$(du -sh "$claude_desktop_dir" 2>/dev/null | awk '{print $1}')
-    info "  Claude Desktop:    ${BOLD}$claude_desk_size${RESET}"
-fi
-
-# ── Cursor AI data ───────────────────────────────────────────────────────
-if [ -d "$HOME/.cursor" ] || [ -d "$HOME/Library/Application Support/Cursor" ]; then
-    cursor_size_1=$(du -s "$HOME/.cursor" 2>/dev/null | awk '{print $1}' || echo "0")
-    cursor_size_2=$(du -s "$HOME/Library/Application Support/Cursor" 2>/dev/null | awk '{print $1}' || echo "0")
-    cursor_total_kb=$(( cursor_size_1 + cursor_size_2 ))
-    cursor_total_mb=$(( cursor_total_kb / 1024 ))
-    info "  Cursor AI data:    ${BOLD}${cursor_total_mb}MB${RESET}"
-fi
-
-_html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
 # 21. CHANGES SINCE LAST RUN
@@ -1513,19 +1611,107 @@ echo -e "  ${BOLD}MAC HEALTH SCORE${RESET}"
 printf "  ${SCORE_COLOR}${BOLD}"
 printf '%0.s█' $(seq 1 $score_filled 2>/dev/null) || true
 printf '%0.s░' $(seq 1 $score_empty  2>/dev/null) || true
-printf "${RESET}  ${SCORE_COLOR}${BOLD}%d / 100${RESET}  (%s)\n" "$HEALTH_SCORE" "$SCORE_LABEL"
+printf "${RESET}  ${SCORE_COLOR}${BOLD}Health Score: %d / 100${RESET}  (%s)\n" "$HEALTH_SCORE" "$SCORE_LABEL"
 echo ""
 (( ISSUES_FOUND   > 0 )) && echo -e "  ${RED}    $ISSUES_FOUND critical issue(s)  × 10 pts = -$(( ISSUES_FOUND * 10 ))${RESET}"
 (( WARNINGS_FOUND > 0 )) && echo -e "  ${YELLOW}    $WARNINGS_FOUND warning(s)       ×  3 pts = -$(( WARNINGS_FOUND * 3 ))${RESET}"
+echo ""
+
+# ── Ranked Vitals Dashboard ──────────────────────────────────────────────
+echo -e "  ${BOLD}SYSTEM VITALS${RESET}  (ranked by severity)"
+echo -e "  ${DIM}┌──────────────────────────────────────────────────────────┐${RESET}"
+
+# Build vitals: name|value|max|unit|severity(0=ok,1=warn,2=crit)
+_vitals=""
+
+# Memory
+_mem_sev=0
+(( CURRENT_mem_pct > 75 )) && _mem_sev=1
+(( CURRENT_mem_pct > 90 )) && _mem_sev=2
+_mem_display=$CURRENT_mem_pct
+(( _mem_display > 100 )) && _mem_display=100
+_vitals="${_vitals}Memory|${_mem_display}|100|%|${_mem_sev}"$'\n'
+
+# Disk
+_disk_sev=0
+(( CURRENT_disk_pct > 85 )) && _disk_sev=1
+(( CURRENT_disk_pct > 95 )) && _disk_sev=2
+_vitals="${_vitals}Disk|${CURRENT_disk_pct}|100|%|${_disk_sev}"$'\n'
+
+# CPU Load
+_cpu_sev=0
+(( CURRENT_cpu_load > cpu_cores )) && _cpu_sev=1
+(( CURRENT_cpu_load > cpu_cores * 2 )) && _cpu_sev=2
+_cpu_load_pct=0
+(( cpu_cores > 0 )) && _cpu_load_pct=$(( CURRENT_cpu_load * 100 / cpu_cores ))
+(( _cpu_load_pct > 100 )) && _cpu_load_pct=100
+_vitals="${_vitals}CPU Load|${_cpu_load_pct}|100|%|${_cpu_sev}"$'\n'
+
+# Swap
+_swap_sev=0
+(( CURRENT_swap_mb > 500 )) && _swap_sev=1
+(( CURRENT_swap_mb > 2000 )) && _swap_sev=2
+_swap_pct=0
+(( CURRENT_swap_mb > 0 )) && _swap_pct=$(( CURRENT_swap_mb * 100 / 4000 ))
+(( _swap_pct > 100 )) && _swap_pct=100
+_vitals="${_vitals}Swap|${_swap_pct}|100|MB (${CURRENT_swap_mb})|${_swap_sev}"$'\n'
+
+# Processes
+_proc_sev=0
+(( CURRENT_processes > 300 )) && _proc_sev=1
+(( CURRENT_processes > 500 )) && _proc_sev=2
+_proc_pct=$(( CURRENT_processes * 100 / 600 ))
+(( _proc_pct > 100 )) && _proc_pct=100
+_vitals="${_vitals}Processes|${_proc_pct}|100| (${CURRENT_processes})|${_proc_sev}"$'\n'
+
+# Sort vitals by severity (descending), then by value (descending)
+echo -n "$_vitals" | sort -t'|' -k5 -rn -k2 -rn | while IFS='|' read -r _vname _vval _vmax _vunit _vsev; do
+    [ -z "$_vname" ] && continue
+    # Build mini bar (15 chars wide)
+    _vbar_len=$(( _vval * 15 / _vmax ))
+    (( _vbar_len > 15 )) && _vbar_len=15
+    (( _vbar_len < 1 && _vval > 0 )) && _vbar_len=1
+    _vbar=""; _vi=0
+    while (( _vi < _vbar_len )); do _vbar="${_vbar}█"; _vi=$((_vi+1)); done
+    while (( _vi < 15 )); do _vbar="${_vbar}░"; _vi=$((_vi+1)); done
+
+    if   (( _vsev == 2 )); then _vc="${RED}";    _vicon="▸"
+    elif (( _vsev == 1 )); then _vc="${YELLOW}"; _vicon="▸"
+    else                        _vc="${GREEN}";  _vicon=" "
+    fi
+
+    echo -e "  ${DIM}│${RESET} ${_vicon} ${_vc}$(printf '%-12s' "$_vname") ${_vbar}${RESET}  $(printf '%3d' "$_vval")${_vunit}  ${DIM}│${RESET}"
+done
+
+echo -e "  ${DIM}└──────────────────────────────────────────────────────────┘${RESET}"
 echo ""
 
 if (( ISSUES_FOUND == 0 && WARNINGS_FOUND == 0 )); then
     echo -e "  ${GREEN}${BOLD}✓ Your Mac looks healthy!${RESET} No critical issues or warnings found."
     echo -e "  ${DIM}If it still feels slow, try a restart (uptime: $uptime_str).${RESET}"
 else
-    [ "$ISSUES_FOUND"   -gt 0 ] && echo -e "  ${RED}${BOLD}$ISSUES_FOUND critical issue(s)${RESET} — these are likely slowing your Mac."
-    [ "$WARNINGS_FOUND" -gt 0 ] && echo -e "  ${YELLOW}${BOLD}$WARNINGS_FOUND warning(s)${RESET} — worth investigating."
+    # ── Ranked Findings (most critical → least) ─────────────────────────
+    echo -e "  ${BOLD}ALL FINDINGS${RESET}  (most → least critical)"
+    echo -e "  ${DIM}┌──────────────────────────────────────────────────────────────────────┐${RESET}"
+
+    _rank=1
+    echo -n "$FINDINGS" | sort -t'|' -k1 -rn | while IFS='|' read -r _sev _sec _msg; do
+        [ -z "$_msg" ] && continue
+        # Truncate long messages
+        _display_msg="$_msg"
+        (( ${#_display_msg} > 58 )) && _display_msg="${_display_msg:0:55}..."
+
+        if (( _sev == 2 )); then
+            printf "  ${DIM}│${RESET} ${RED}${BOLD}%2d. [CRITICAL]${RESET} %-56s ${DIM}│${RESET}\n" "$_rank" "$_display_msg"
+        else
+            printf "  ${DIM}│${RESET} ${YELLOW}%2d. [WARNING]${RESET}  %-56s ${DIM}│${RESET}\n" "$_rank" "$_display_msg"
+        fi
+        _rank=$(( _rank + 1 ))
+    done
+
+    echo -e "  ${DIM}└──────────────────────────────────────────────────────────────────────┘${RESET}"
     echo ""
+
     echo -e "  ${BOLD}Quick wins:${RESET}"
     echo -e "    1. Restart your Mac — clears leaked memory and stale processes"
     echo -e "    2. Close apps you're not actively using (especially Electron apps)"
@@ -1536,9 +1722,9 @@ else
 fi
 
 echo ""
-echo -e "  ${DIM}Snapshot saved to: $SNAP_FILE${RESET}"
+[ "$DO_SNAP" = "true" ] && echo -e "  ${DIM}Snapshot saved to: $SNAP_FILE${RESET}"
 echo -e "  ${DIM}Report generated:  $(date '+%Y-%m-%d %H:%M:%S')${RESET}"
-echo -e "  ${DIM}Run again:         ./mac-doctor.sh [--fix] [--html] [--no-snap]${RESET}"
+echo -e "  ${DIM}Run again:         mac-doctor [--fix] [--html] [--no-snap]${RESET}"
 echo ""
 echo -e "  ${DIM}If Mac Doctor helped, consider supporting the project:${RESET}"
 echo -e "  ${DIM}  ☕  buymeacoffee.com/crazymahii${RESET}"

@@ -49,24 +49,24 @@ mac-doctor --no-snap    # skip snapshot comparison
 |---|---------|----------------|
 | 1 | System Overview | Model, chip, RAM, macOS version, uptime |
 | 2 | Pending Updates | Software updates consuming background resources |
-| 3 | CPU Analysis | Load, top consumers, runaway processes, kernel_task throttling |
-| 4 | Memory Analysis | Pressure, swap, pageouts, top memory consumers |
-| 5 | Disk Analysis | Usage, I/O, space breakdown (Downloads, Trash, Caches) |
-| 6 | Thermal & Power | Throttling, battery health, power state |
-| 7 | Sleep Blockers | Processes preventing sleep, draining battery |
-| 8 | Security Audit | FileVault, Firewall, SIP, Gatekeeper, XProtect |
-| 9 | Background Processes | Login items, LaunchAgents, process count |
-| 10 | iCloud Sync | Container status, stalled syncs |
-| 11 | Spotlight | Indexing load |
-| 12 | Network & WiFi | DNS speed, signal strength, SNR, VPN detection |
-| 13 | GPU & Graphics | WindowServer load, open app count |
-| 14 | Electron Apps | Per-app RAM/CPU breakdown for Chromium-based apps |
-| 15 | Rosetta 2 | x86 apps running under emulation on Apple Silicon |
-| 16 | Time Machine | Active backup detection |
-| 17 | Kernel Health | Kernel panics, app crashes |
-| 18 | Developer Env | Node, JVM, Docker, Xcode DerivedData, Homebrew cache |
-| 19 | Storage | Docker images, Mail, Simulators, Application Support |
-| 20 | **AI Tools & Agents** | Running AI tools (Claude, Ollama, LM Studio, Cursor, Copilot), local model storage, Claude Code usage stats |
+| 3 | **AI Tools & Agents** | Running AI tools (Claude, Ollama, LM Studio, Cursor, Copilot), local model storage, Claude Code usage stats |
+| 4 | CPU Analysis | Load, top consumers, runaway processes, kernel_task throttling |
+| 5 | Memory Analysis | Pressure, swap, pageouts, top memory consumers |
+| 6 | Disk Analysis | Usage, I/O, space breakdown (Downloads, Trash, Caches) |
+| 7 | Thermal & Power | Throttling, battery health, power state |
+| 8 | Sleep Blockers | Processes preventing sleep, draining battery |
+| 9 | Security Audit | FileVault, Firewall, SIP, Gatekeeper, XProtect |
+| 10 | Background Processes | Login items, LaunchAgents, process count |
+| 11 | iCloud Sync | Container status, stalled syncs |
+| 12 | Spotlight | Indexing load |
+| 13 | Network & WiFi | DNS speed, signal strength, SNR, VPN detection |
+| 14 | GPU & Graphics | WindowServer load, open app count |
+| 15 | Electron Apps | Per-app RAM/CPU breakdown for Chromium-based apps |
+| 16 | Rosetta 2 | x86 apps running under emulation on Apple Silicon |
+| 17 | Time Machine | Active backup detection |
+| 18 | Kernel Health | Kernel panics, app crashes |
+| 19 | Developer Env | Node, JVM, Docker, Xcode DerivedData, Homebrew cache |
+| 20 | Storage | Docker images, Mail, Simulators, Application Support |
 | 21 | Changes Since Last Run | Drift comparison with previous snapshot |
 
 ## Scheduled scans
