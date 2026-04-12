@@ -1,0 +1,39 @@
+<html>
+<head>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; color: #333; }
+  h1 { font-size: 20px; color: #2ed573; margin-bottom: 16px; }
+  code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  .cmd { margin: 8px 0; padding: 10px 14px; background: #1a1a2e; color: #e0e0f0; border-radius: 6px;
+         font-family: 'SF Mono', Menlo, monospace; font-size: 13px; }
+  .section { margin-top: 20px; }
+  .note { margin-top: 20px; padding: 12px; background: #f0fff4; border-radius: 8px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Mac Doctor is installed.</h1>
+
+<p>Open Terminal and run:</p>
+
+<div class="cmd">mac-doctor</div>
+<div class="cmd">mac-doctor --fix</div>
+<div class="cmd">mac-doctor --html</div>
+
+<div class="section">
+  <p><strong>Weekly scan:</strong> Mac Doctor will check your Mac every Sunday at 10 AM and send you a notification if anything needs attention.</p>
+  <p>To disable the weekly scan:</p>
+  <div class="cmd">launchctl unload ~/Library/LaunchAgents/com.macdoctor.scan.plist</div>
+</div>
+
+<div class="section">
+  <p><strong>To uninstall completely:</strong></p>
+  <div class="cmd">sudo rm /usr/local/bin/mac-doctor<br>
+rm ~/Library/LaunchAgents/com.macdoctor.scan.plist<br>
+sudo rm -rf /usr/local/share/mac-doctor</div>
+</div>
+
+<div class="note">
+  All diagnostics run locally. No data is sent anywhere.
+</div>
+</body>
+</html>

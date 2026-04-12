@@ -8,3 +8,7 @@
 
 # HTML reports generated locally
 mac-doctor-*.html
+
+# Build artifacts
+build/
+*.pkg

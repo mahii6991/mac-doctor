@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Mac Doctor</title>
+    <organization>com.macdoctor</organization>
+    <domains enable_localSystem="true"/>
+    <options customize="never" require-scripts="true" hostArchitectures="x86_64,arm64"/>
+
+    <!-- Require macOS 12+ -->
+    <volume-check>
+        <allowed-os-versions>
+            <os-version min="12.0"/>
+        </allowed-os-versions>
+    </volume-check>
+
+    <welcome    file="welcome.html"/>
+    <license    file="license.html"/>
+    <conclusion file="conclusion.html"/>
+
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.macdoctor.pkg"/>
+        </line>
+    </choices-outline>
+
+    <choice id="default"/>
+    <choice id="com.macdoctor.pkg" visible="false">
+        <pkg-ref id="com.macdoctor.pkg"/>
+    </choice>
+
+    <pkg-ref id="com.macdoctor.pkg"
+             version="2.1.0"
+             onConclusion="none">mac-doctor-component.pkg</pkg-ref>
+</installer-gui-script>

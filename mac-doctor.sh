@@ -250,7 +250,8 @@ generate_html_report() {
 <a href="#sec13">13. GPU &amp; Graphics</a><a href="#sec14">14. Electron Apps</a>
 <a href="#sec15">15. Rosetta 2</a><a href="#sec16">16. Time Machine</a>
 <a href="#sec17">17. Kernel Health</a><a href="#sec18">18. Developer Env</a>
-<a href="#sec19">19. Storage</a><a href="#sec20">20. Changes vs Last Run</a>
+<a href="#sec19">19. Storage</a><a href="#sec20">20. AI Tools &amp; Agents</a>
+<a href="#sec21">21. Changes vs Last Run</a>
 </div>
 ${HTML_BODY}
 <div class="footer">Mac Doctor &nbsp;|&nbsp; Run again: <code>./mac-doctor.sh --fix --html</code></div>
@@ -270,7 +271,7 @@ clear
 
 echo -e "${BOLD}"
 echo "  ╔══════════════════════════════════════════════════════════════╗"
-echo "  ║                    🩺  Mac Doctor  v2.0                     ║"
+echo "  ║                    🩺  Mac Doctor  v2.1                     ║"
 echo "  ║           Granular macOS Performance Diagnostics            ║"
 echo "  ╚══════════════════════════════════════════════════════════════╝"
 echo -e "${RESET}"
@@ -761,8 +762,10 @@ if [ -z "$brctl_raw" ]; then
 else
     # First line: "NN containers matching '*'"
     container_count=$(echo "$brctl_raw" | head -1 | awk '{print $1+0}')
-    foreground_count=$(echo "$brctl_raw" | grep -c "foreground" || echo "0")
-    active_count=$(echo "$brctl_raw" | grep -cE "uploading|downloading" || echo "0")
+    foreground_count=$(echo "$brctl_raw" | grep -c "foreground" || true)
+    foreground_count=${foreground_count:-0}
+    active_count=$(echo "$brctl_raw" | grep -cE "uploading|downloading" || true)
+    active_count=${active_count:-0}
 
     info "iCloud containers registered: ${BOLD}$container_count${RESET}"
 
@@ -871,7 +874,7 @@ if [ -n "$active_iface" ]; then
             wifi_txrate=$(echo "$wifi_data" | awk '/Transmit Rate:/{match($0,/[0-9]+/); print substr($0,RSTART,RLENGTH)+0; exit}')
 
             [ -n "$wifi_ssid"   ] && info "  Network:  ${BOLD}$wifi_ssid${RESET}"
-            [ -n "$wifi_channel"] && info "  Channel:  ${BOLD}$wifi_channel${RESET}"
+            [ -n "$wifi_channel" ] && info "  Channel:  ${BOLD}$wifi_channel${RESET}"
             [ -n "$wifi_txrate" ] && info "  TX Rate:  ${BOLD}${wifi_txrate} Mbps${RESET}"
 
             if [ -n "$wifi_rssi" ] && [ -n "$wifi_noise" ]; then
@@ -1233,11 +1236,203 @@ appsupp_size=$(du -sh ~/Library/Application\ Support 2>/dev/null | awk '{print $
 _html_section_close
 
 # ════════════════════════════════════════════════════════════════════════════
-# 20. CHANGES SINCE LAST RUN
+# 20. AI TOOLS & AGENTS
+# ════════════════════════════════════════════════════════════════════════════
+separator "20. AI TOOLS & AGENTS"
+_html_section_open 20 "AI Tools & Agents"
+
+ai_anything_found=false
+
+# ── Detect running AI processes & aggregate resource usage ────────────────
+# Each tool: name|grep_pattern|data_dir (optional)
+_ai_tools=(
+    "Claude Desktop|/Applications/Claude.app"
+    "Claude Code|claude.*--output-format\|claude.*--permission-prompt"
+    "Ollama|/Applications/Ollama.app\|ollama serve"
+    "LM Studio|/Applications/LM Studio.app\|\.lmstudio"
+    "Cursor|/Applications/Cursor.app"
+    "GitHub Copilot|copilot"
+    "ChatGPT|com.openai.chat\|/Applications/ChatGPT.app"
+    "Windsurf|/Applications/Windsurf.app"
+    "Continue.dev|continue.*server"
+)
+
+info "Running AI tools:"
+echo -e "  ${DIM}──────────────────────────────────────────────────────────${RESET}"
+printf "  %-22s %8s  %6s  %5s\n" "Tool" "RAM" "CPU%" "Procs"
+echo -e "  ${DIM}──────────────────────────────────────────────────────────${RESET}"
+
+ai_total_ram=0
+ai_total_cpu=0
+ai_total_procs=0
+
+for _entry in "${_ai_tools[@]}"; do
+    _name="${_entry%%|*}"
+    _pattern="${_entry##*|}"
+
+    _stats=$(ps aux | awk -v pat="$_pattern" '
+    NR==1 {next}
+    {
+        cmd=""
+        for(i=11;i<=NF;i++) cmd=cmd" "$i
+        if (cmd ~ pat && cmd !~ /awk/ && cmd !~ /grep/) {
+            cnt++; ram+=$6/1024; cpu+=$3
+        }
+    }
+    END { if (cnt+0>0) printf "%d|%.0f|%.1f", cnt, ram, cpu }')
+
+    [ -z "$_stats" ] && continue
+
+    ai_anything_found=true
+    _cnt="${_stats%%|*}";  _rest="${_stats#*|}"
+    _ram="${_rest%%|*}";   _cpu="${_rest##*|}"
+
+    ai_total_ram=$(( ai_total_ram + _ram ))
+    ai_total_procs=$(( ai_total_procs + _cnt ))
+    # cpu is float — accumulate via awk later
+
+    if   (( _ram > 1000 )); then
+        printf "  ${RED}▸ %-20s${RESET}  %5d MB  %5.1f%%  %4d\n" "$_name" "$_ram" "$_cpu" "$_cnt"
+    elif (( _ram > 300  )); then
+        printf "  ${YELLOW}▸ %-20s${RESET}  %5d MB  %5.1f%%  %4d\n" "$_name" "$_ram" "$_cpu" "$_cnt"
+    else
+        printf "    %-20s  %5d MB  %5.1f%%  %4d\n" "$_name" "$_ram" "$_cpu" "$_cnt"
+    fi
+done
+
+if [ "$ai_anything_found" = "true" ]; then
+    echo -e "  ${DIM}──────────────────────────────────────────────────────────${RESET}"
+    printf "  %-22s %5d MB          %4d\n" "TOTAL" "$ai_total_ram" "$ai_total_procs"
+    echo ""
+    if   (( ai_total_ram > 4000 )); then issue "AI tools consuming ${ai_total_ram}MB RAM! Significant resource usage."
+    elif (( ai_total_ram > 2000 )); then warn  "AI tools using ${ai_total_ram}MB RAM."
+    elif (( ai_total_ram > 0    )); then ok    "AI tool memory footprint is reasonable (${ai_total_ram}MB)."
+    fi
+else
+    info "  No AI tools currently running."
+fi
+
+# ── Local Model Storage ──────────────────────────────────────────────────
+echo ""
+info "Local AI model storage:"
+echo -e "  ${DIM}──────────────────────────────────────────────────────────${RESET}"
+
+ai_model_disk=0
+
+# Ollama models
+if [ -d "$HOME/.ollama/models" ]; then
+    ollama_size=$(du -sh "$HOME/.ollama/models" 2>/dev/null | awk '{print $1}')
+    ollama_kb=$(du -s "$HOME/.ollama/models" 2>/dev/null | awk '{print $1}' || echo "0")
+    ai_model_disk=$(( ai_model_disk + ollama_kb ))
+    ollama_model_list=$(ls "$HOME/.ollama/models/manifests/registry.ollama.ai/library/" 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+    info "  Ollama models:     ${BOLD}$ollama_size${RESET}"
+    [ -n "$ollama_model_list" ] && echo -e "  ${DIM}    Models: $ollama_model_list${RESET}"
+fi
+
+# LM Studio models
+if [ -d "$HOME/.lmstudio/models" ]; then
+    lms_size=$(du -sh "$HOME/.lmstudio" 2>/dev/null | awk '{print $1}')
+    lms_kb=$(du -s "$HOME/.lmstudio" 2>/dev/null | awk '{print $1}' || echo "0")
+    ai_model_disk=$(( ai_model_disk + lms_kb ))
+    lms_count=$(find "$HOME/.lmstudio/models" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | wc -l | tr -d ' ')
+    info "  LM Studio models:  ${BOLD}$lms_size${RESET} (${lms_count} models)"
+fi
+
+# Hugging Face cache
+if [ -d "$HOME/.cache/huggingface" ]; then
+    hf_size=$(du -sh "$HOME/.cache/huggingface" 2>/dev/null | awk '{print $1}')
+    hf_kb=$(du -s "$HOME/.cache/huggingface" 2>/dev/null | awk '{print $1}' || echo "0")
+    ai_model_disk=$(( ai_model_disk + hf_kb ))
+    info "  HuggingFace cache: ${BOLD}$hf_size${RESET}"
+fi
+
+# GPT4All models
+if [ -d "$HOME/Library/Application Support/nomic.ai" ]; then
+    gpt4all_size=$(du -sh "$HOME/Library/Application Support/nomic.ai" 2>/dev/null | awk '{print $1}')
+    gpt4all_kb=$(du -s "$HOME/Library/Application Support/nomic.ai" 2>/dev/null | awk '{print $1}' || echo "0")
+    ai_model_disk=$(( ai_model_disk + gpt4all_kb ))
+    info "  GPT4All models:    ${BOLD}$gpt4all_size${RESET}"
+fi
+
+ai_model_disk_gb=$(( ai_model_disk / 1048576 ))
+if (( ai_model_disk > 0 )); then
+    echo ""
+    if   (( ai_model_disk_gb > 100 )); then warn "AI models using ${ai_model_disk_gb}GB disk — consider removing unused models."
+    elif (( ai_model_disk_gb > 50  )); then warn "AI models using ${ai_model_disk_gb}GB disk."
+    elif (( ai_model_disk_gb > 0   )); then ok   "AI model disk usage: ~${ai_model_disk_gb}GB"
+    else                                    ok   "AI model disk usage is minimal."
+    fi
+fi
+
+# ── Claude Code Usage Stats ──────────────────────────────────────────────
+claude_stats_file="$HOME/.claude/stats-cache.json"
+if [ -f "$claude_stats_file" ]; then
+    echo ""
+    info "Claude Code usage history:"
+    echo -e "  ${DIM}──────────────────────────────────────────────────────────${RESET}"
+
+    cc_stats=$(python3 -c "
+import json, sys
+with open('$claude_stats_file') as f:
+    data = json.load(f)
+daily = data.get('dailyActivity', [])
+total_msgs = sum(d.get('messageCount', 0) for d in daily)
+total_sess = sum(d.get('sessionCount', 0) for d in daily)
+total_tool = sum(d.get('toolCallCount', 0) for d in daily)
+days = len(daily)
+# Last 7 days activity
+recent = daily[-7:] if len(daily) >= 7 else daily
+recent_msgs = sum(d.get('messageCount', 0) for d in recent)
+recent_sess = sum(d.get('sessionCount', 0) for d in recent)
+recent_tool = sum(d.get('toolCallCount', 0) for d in recent)
+first = daily[0]['date'] if daily else '?'
+last  = daily[-1]['date'] if daily else '?'
+avg_msgs = total_msgs // days if days > 0 else 0
+print(f'{total_msgs}|{total_sess}|{total_tool}|{days}|{first}|{last}|{recent_msgs}|{recent_sess}|{recent_tool}|{avg_msgs}')
+" 2>/dev/null || echo "")
+
+    if [ -n "$cc_stats" ]; then
+        IFS='|' read -r cc_msgs cc_sess cc_tools cc_days cc_first cc_last cc_rmsg cc_rsess cc_rtool cc_avg <<< "$cc_stats"
+
+        info "  Total messages:    ${BOLD}${cc_msgs}${RESET} across ${cc_sess} sessions"
+        info "  Tool calls:        ${BOLD}${cc_tools}${RESET}"
+        info "  Active days:       ${BOLD}${cc_days}${RESET}  (${cc_first} → ${cc_last})"
+        info "  Avg msgs/day:      ${BOLD}${cc_avg}${RESET}"
+        echo ""
+        info "  Last 7 active days: ${BOLD}${cc_rmsg}${RESET} messages, ${cc_rsess} sessions, ${cc_rtool} tool calls"
+
+        (( cc_avg > 500 )) && info "  Heavy Claude Code user — averaging ${cc_avg} messages/active day."
+    fi
+
+    # Claude Code data dir size
+    claude_dir_size=$(du -sh "$HOME/.claude" 2>/dev/null | awk '{print $1}')
+    [ -n "$claude_dir_size" ] && info "  Claude Code data:  ${BOLD}$claude_dir_size${RESET} (~/.claude)"
+fi
+
+# ── Claude Desktop data ──────────────────────────────────────────────────
+claude_desktop_dir="$HOME/Library/Application Support/Claude"
+if [ -d "$claude_desktop_dir" ]; then
+    claude_desk_size=$(du -sh "$claude_desktop_dir" 2>/dev/null | awk '{print $1}')
+    info "  Claude Desktop:    ${BOLD}$claude_desk_size${RESET}"
+fi
+
+# ── Cursor AI data ───────────────────────────────────────────────────────
+if [ -d "$HOME/.cursor" ] || [ -d "$HOME/Library/Application Support/Cursor" ]; then
+    cursor_size_1=$(du -s "$HOME/.cursor" 2>/dev/null | awk '{print $1}' || echo "0")
+    cursor_size_2=$(du -s "$HOME/Library/Application Support/Cursor" 2>/dev/null | awk '{print $1}' || echo "0")
+    cursor_total_kb=$(( cursor_size_1 + cursor_size_2 ))
+    cursor_total_mb=$(( cursor_total_kb / 1024 ))
+    info "  Cursor AI data:    ${BOLD}${cursor_total_mb}MB${RESET}"
+fi
+
+_html_section_close
+
+# ════════════════════════════════════════════════════════════════════════════
+# 21. CHANGES SINCE LAST RUN
 # ════════════════════════════════════════════════════════════════════════════
 if [ "$SNAP_LOADED" = "true" ]; then
-    separator "20. CHANGES SINCE LAST RUN"
-    _html_section_open 20 "Changes Since Last Run"
+    separator "21. CHANGES SINCE LAST RUN"
+    _html_section_open 21 "Changes Since Last Run"
 
     snap_age=$(( $(date +%s) - SNAP_TIMESTAMP ))
     snap_h=$(( snap_age / 3600 ))

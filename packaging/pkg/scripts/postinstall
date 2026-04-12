@@ -1,0 +1,32 @@
+#!/bin/bash
+# postinstall — Runs after the .pkg installs files
+# Sets up the LaunchAgent for the installing user
+
+PLIST_SRC="/usr/local/share/mac-doctor/com.macdoctor.scan.plist"
+NOTIFY_SCRIPT="/usr/local/share/mac-doctor/mac-doctor-notify.sh"
+
+# Determine the real user (not root, since the installer runs as root)
+REAL_USER="${USER}"
+if [ "$REAL_USER" = "root" ] && [ -n "$SUDO_USER" ]; then
+    REAL_USER="$SUDO_USER"
+fi
+USER_HOME=$(eval echo ~"$REAL_USER")
+LAUNCHD_DIR="${USER_HOME}/Library/LaunchAgents"
+
+# Install LaunchAgent plist with correct path
+mkdir -p "$LAUNCHD_DIR"
+sed "s|__NOTIFY_SCRIPT__|${NOTIFY_SCRIPT}|g" "$PLIST_SRC" > "${LAUNCHD_DIR}/com.macdoctor.scan.plist"
+chown "$REAL_USER" "${LAUNCHD_DIR}/com.macdoctor.scan.plist"
+
+echo ""
+echo "Mac Doctor installed successfully."
+echo ""
+echo "  Run:       mac-doctor"
+echo "  Fix mode:  mac-doctor --fix"
+echo "  Report:    mac-doctor --html"
+echo ""
+echo "  Weekly scan enabled (Sundays 10 AM)."
+echo "  Disable:   launchctl unload ~/Library/LaunchAgents/com.macdoctor.scan.plist"
+echo ""
+
+exit 0
