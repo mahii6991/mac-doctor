@@ -9,17 +9,6 @@ No dependencies. No telemetry. No data leaves your Mac.
 
 ## Install
 
-### Homebrew (recommended)
-
-```bash
-brew tap mahii6991/tap
-brew install mac-doctor
-```
-
-### .pkg installer
-
-Download the latest `.pkg` from [Releases](https://github.com/mahii6991/mac-doctor/releases) and double-click to install. Signed and notarized by Apple — no Gatekeeper warnings.
-
 ### Manual
 
 ```bash
