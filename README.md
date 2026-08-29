@@ -30,6 +30,33 @@ mac-doctor              # standard scan
 mac-doctor --fix        # scan + fix issues interactively
 mac-doctor --html       # save HTML report to Desktop
 mac-doctor --no-snap    # skip snapshot comparison
+mac-doctor --free-ram   # what to quit/kill to free RAM for local AI models
+```
+
+## Freeing RAM for local models
+
+Running an LLM locally (Ollama, LM Studio, llama.cpp…) and it won't fit in memory?
+
+```bash
+mac-doctor --free-ram
+```
+
+Shows your free memory, which model sizes fit right now vs. after cleanup, and ranks every candidate by how much RAM it holds and how safe it is to kill:
+
+- **✓ Safe to kill** — browser tab helpers, Node dev servers/watchers, language servers, Docker VM, Spotlight & media indexers, iOS Simulator. These respawn or restart cleanly.
+- **? Quit manually** — GUI apps you opened (Slack, Chrome, VS Code…). Listed so you decide; kill them from the prompt too.
+- **🔒 Protected** — your LLM runtime, macOS system processes, other users' processes, and this script's own terminal chain are never offered for killing.
+
+Pick items by number (`1 3 5`), `safe` for all ✓ items, `all`, or press Enter to cancel. Kills use SIGTERM so apps get a chance to save, then re-checks your free memory.
+
+```text
+  [1]  ✓ Node.js dev servers & watchers            1240 MB    6 procs
+  [2]  ✓ Google Chrome helpers                      980 MB   12 procs
+  [3]  ? Slack                                      512 MB    3 procs
+  🔒 Local LLM runtime                              4700 MB    2 procs
+
+  Can run right now:      ~3-4B models (llama3.2:3b, phi3:mini)
+  After freeing pool:     ~7-9B models (llama3.1:8b, mistral:7b)
 ```
 
 ## What it checks
@@ -63,10 +90,6 @@ mac-doctor --no-snap    # skip snapshot comparison
 Mac Doctor can run weekly and send you a macOS notification:
 
 ```bash
-# Via Homebrew
-brew services start mac-doctor
-
-# Via Make
 make schedule
 ```
 
@@ -75,9 +98,6 @@ Scans run every Sunday at 10 AM. You'll get a notification with your health scor
 ## Uninstall
 
 ```bash
-# Homebrew
-brew uninstall mac-doctor && brew untap mahii6991/tap
-
 # Make / .pkg
 make uninstall
 # or manually:
@@ -101,8 +121,8 @@ bash packaging/pkg/build-pkg.sh --sign "Developer ID Installer: Your Name"
 
 ## Privacy & Security
 
-- **No network calls.** Every check uses built-in macOS commands (`ps`, `vm_stat`, `sysctl`, `diskutil`, etc.)
-- **No telemetry.** Nothing is sent anywhere. Ever.
+- **No telemetry, no data collection.** Nothing about you or your Mac is ever sent anywhere.
+- **Minimal network use.** Checks rely on built-in macOS commands (`ps`, `vm_stat`, `sysctl`, `diskutil`, etc.). The only network access is Apple's own update check (`softwareupdate`) and a single DNS lookup used to time your resolver — no personal data is transmitted.
 - **No root required.** Runs entirely as your user. `--fix` mode asks for `sudo` only for specific system fixes you approve.
 - **Open source.** Read every line of the script — it's one file.
 - **Snapshots stay local.** History is stored in `~/.mac-doctor/` on your machine only.

@@ -10,6 +10,7 @@
 #   ./mac-doctor.sh --fix       Diagnostic + interactive fixes at the end
 #   ./mac-doctor.sh --html      Save a self-contained HTML report to Desktop
 #   ./mac-doctor.sh --no-snap   Skip snapshot comparison (don't read/write history)
+#   ./mac-doctor.sh --free-ram  Show what to quit/kill to free RAM for local LLMs
 # ============================================================================
 
 set +e
@@ -18,19 +19,22 @@ set +e
 DO_FIX=false
 DO_HTML=false
 DO_SNAP=true
+DO_FREERAM=false
 
 for _arg in "$@"; do
     case "$_arg" in
-        --fix)     DO_FIX=true ;;
-        --html)    DO_HTML=true ;;
-        --no-snap) DO_SNAP=false ;;
+        --fix)      DO_FIX=true ;;
+        --html)     DO_HTML=true ;;
+        --no-snap)  DO_SNAP=false ;;
+        --free-ram) DO_FREERAM=true ;;
         --help)
             echo "Mac Doctor — Granular macOS Performance Diagnostics"
             echo ""
-            echo "Usage: mac-doctor [--fix] [--html] [--no-snap]"
-            echo "  --fix      Offer to apply safe fixes after diagnosis"
-            echo "  --html     Save an HTML report to ~/Desktop"
-            echo "  --no-snap  Skip snapshot save/compare"
+            echo "Usage: mac-doctor [--fix] [--html] [--no-snap] [--free-ram]"
+            echo "  --fix       Offer to apply safe fixes after diagnosis"
+            echo "  --html      Save an HTML report to ~/Desktop"
+            echo "  --no-snap   Skip snapshot save/compare"
+            echo "  --free-ram  What to quit/kill to free RAM for local AI models (Ollama, LM Studio…)"
             exit 0 ;;
     esac
 done
@@ -185,8 +189,8 @@ bar_chart() {
     elif (( value * 100 / max > 60 )); then color="${YELLOW}"
     fi
     printf "  ${color}["
-    printf '%0.s█' $(seq 1 $filled 2>/dev/null) || true
-    printf '%0.s░' $(seq 1 $empty  2>/dev/null) || true
+    (( filled > 0 )) && printf '%0.s█' $(seq 1 "$filled")
+    (( empty  > 0 )) && printf '%0.s░' $(seq 1 "$empty")
     local pct=$(( value * 100 / max ))
     (( pct > 100 )) && pct=100
     printf "]${RESET} %d%%\n" "$pct"
@@ -208,6 +212,294 @@ show_drift() {
     if   (( diff > 0 )); then echo -e "  ${DIM}  ↑ was ${prev}${unit} last run (+${diff}${unit})${RESET}"
     elif (( diff < 0 )); then echo -e "  ${DIM}  ↓ was ${prev}${unit} last run (${diff}${unit})${RESET}"
     fi
+}
+
+# ── Free-RAM Mode (--free-ram) ────────────────────────────────────────────────
+# Focused mode for people who run LLMs locally (Ollama, LM Studio, llama.cpp…).
+# Shows which running tasks can be safely quit/killed to free memory before
+# loading a model — never touching the model runtime, macOS system processes,
+# or this script's own terminal chain.
+
+# Rough Q4-quantized guidance: what parameter size fits in a given RAM budget.
+model_tier_for_mb() {
+    local mb=$1
+    if   (( mb >= 45000 )); then echo "~70B models (llama3.3:70b-q4) — tight but possible"
+    elif (( mb >= 22000 )); then echo "~27-32B models (qwen3:30b, gemma3:27b)"
+    elif (( mb >= 13000 )); then echo "~13-14B models (phi4:14b, qwen3:14b)"
+    elif (( mb >= 6500 ));  then echo "~7-9B models (llama3.1:8b, mistral:7b, qwen3:8b)"
+    elif (( mb >= 3200 ));  then echo "~3-4B models (llama3.2:3b, phi3:mini)"
+    else                         echo "tiny ≤1.5B models (smollm2, qwen2.5:0.5b) — close more apps first"
+    fi
+}
+
+fmt_gb() { awk -v m="$1" 'BEGIN{printf "%.1f", m/1024}'; }
+
+run_free_ram_mode() {
+    local cur_user hw_model total_ram_gb cpu_brand
+    cur_user=$(whoami)
+    hw_model=$(sysctl -n hw.model 2>/dev/null || echo "Mac")
+    total_ram_gb=$(( $(sysctl -n hw.memsize 2>/dev/null || echo "0") / 1073741824 ))
+    cpu_brand=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "")
+    [ -z "$cpu_brand" ] && cpu_brand=$(system_profiler SPHardwareDataType 2>/dev/null \
+        | awk -F': ' '/Chip:/{gsub(/^[ \t]+/,"",$2); print $2}')
+    [ -z "$cpu_brand" ] && cpu_brand="Unknown chip"
+
+    # Never offer to kill ourselves or any ancestor (shell, tmux, terminal…)
+    local self_pids="$$" _walk="$$" _i
+    for _i in 1 2 3 4 5 6 7 8; do
+        _walk=$(ps -o ppid= -p "$_walk" 2>/dev/null | tr -d ' ')
+        [ -z "$_walk" ] && break
+        [ "$_walk" = "1" ] && break
+        self_pids="$self_pids $_walk"
+    done
+
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo -e "${BOLD}  🩺 Mac Doctor — FREE RAM FOR LOCAL MODELS${RESET}"
+    echo -e "${DIM}  Find what to quit before loading a model (Ollama / LM Studio / llama.cpp)${RESET}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo ""
+    info "Host: ${BOLD}$hw_model${RESET} · ${BOLD}$cpu_brand${RESET} · ${BOLD}${total_ram_gb} GB${RESET} unified memory"
+
+    # ── Memory right now ────────────────────────────────────────────────────
+    local vm_stat_output page_size pages_free pages_inactive pages_wired pages_compressed
+    vm_stat_output=$(vm_stat)
+    page_size=$(echo "$vm_stat_output" | head -1 | grep -oE '[0-9]+')
+    pages_free=$(echo       "$vm_stat_output" | awk '/Pages free/              {gsub(/\./,"",$3); print $3+0}')
+    pages_inactive=$(echo   "$vm_stat_output" | awk '/Pages inactive/          {gsub(/\./,"",$3); print $3+0}')
+    pages_wired=$(echo      "$vm_stat_output" | awk '/Pages wired/             {gsub(/\./,"",$4); print $4+0}')
+    pages_compressed=$(echo "$vm_stat_output" | awk '/Pages stored in compressor/ {gsub(/\./,"",$5); print $5+0}')
+
+    local free_mb=$((   pages_free       * page_size / 1048576 ))
+    local inactive_mb=$(( pages_inactive * page_size / 1048576 ))
+    local wired_mb=$((  pages_wired      * page_size / 1048576 ))
+    local compressed_mb=$(( pages_compressed * page_size / 1048576 ))
+
+    local swap_used="0" swap_raw
+    swap_raw=$(sysctl -n vm.swapusage 2>/dev/null || echo "")
+    [ -n "$swap_raw" ] && swap_used=$(echo "$swap_raw" | grep -oE 'used = [0-9.]+' | grep -oE '[0-9.]+' || echo "0")
+    local swap_int=${swap_used%%.*}
+
+    echo ""
+    echo -e "  ${BOLD}MEMORY RIGHT NOW${RESET}"
+    info "  Free (usable by a model): ${BOLD}${free_mb} MB${RESET}"
+    info "  Inactive/cache:           ${BOLD}${inactive_mb} MB${RESET}  (macOS reclaims these automatically — no action needed)"
+    info "  Wired/kernel: ${wired_mb} MB   Compressed: ${compressed_mb} MB"
+    info "  Swap in use:              ${BOLD}${swap_int} MB${RESET}"
+    (( swap_int > 500 )) && warn "Swap is holding ${swap_int}MB — the system is already memory-starved."
+
+    # ── Local model runtimes (protected) ────────────────────────────────────
+    echo ""
+    echo -e "  ${BOLD}LOCAL MODEL RUNTIMES${RESET}"
+    local engine_found=false ollps
+    if command -v ollama >/dev/null 2>&1 && { pgrep -x ollama >/dev/null 2>&1 || pgrep -f "[o]llama serve" >/dev/null 2>&1; }; then
+        engine_found=true
+        ollps=$(ollama ps 2>/dev/null | tail -n +2)
+        if [ -n "$ollps" ]; then
+            ok "Ollama is running with model(s) loaded:"
+            echo "$ollps" | awk '{printf "      ▸ %-30s %s %s in RAM\n", $1, $3, $4}'
+            info "  Loaded models keep their RAM until unloaded (ollama stop <name> or keep_alive)."
+        else
+            ok "Ollama daemon is running (no model currently loaded)."
+        fi
+    fi
+    pgrep -f "[l]mstudio|LM Studio" >/dev/null 2>&1 && { engine_found=true; ok "LM Studio server is running."; }
+    pgrep -f "[l]lama-server|[l]lama-cli|[l]lamafile" >/dev/null 2>&1 && { engine_found=true; ok "llama.cpp / llamafile runtime detected."; }
+    $engine_found || info "  No inference engine running yet."
+
+    # ── Scan user processes into kill candidates ────────────────────────────
+    # Buckets: 0=protected runtime  1=safe to kill  2=ask/quit manually
+    #          3=system (excluded)  4=other users (excluded)
+    echo ""
+    info "Scanning your processes for reclaimable RAM…"
+
+    local scan_out totals_line entries
+    scan_out=$(ps aux | awk -v mypids="$self_pids" -v cur_user="$cur_user" '
+    NR == 1 { next }
+    {
+        user=$1; pid=$2; cpu=$3+0; rsskb=$6+0
+        cmd=""
+        for (i=11; i<=NF; i++) cmd=cmd " " $i
+        lcmd=tolower(cmd)
+
+        n=split(mypids, sp, " ")
+        for (x=1; x<=n; x++) if (sp[x] == pid) next
+
+        ram=rsskb/1024
+        bucket=-1; name=""
+
+        if (lcmd ~ /ollama|lm ?studio|llama-server|llama-cli|llamafile|mlx[-. ]/) {
+            bucket=0; name="Local LLM runtime"
+        } else if (lcmd ~ /mdworker|mds_stores|photoanalysisd|mediaanalysisd|quicklookd|thumbnailkit/) {
+            bucket=1; name="Spotlight & media indexers"
+        } else if (lcmd ~ /\/node( |$)|\/nodemon|\/vite( |$)|webpack|esbuild|tsserver|ts-node|jest|vitest|playwright|npm exec|yarn |pnpm |\/deno( |$)|\/bun( |$)/) {
+            bucket=1; name="Node.js dev servers & watchers"
+        } else if (lcmd ~ /gopls|rust-analyzer|pyright|clangd|sourcekit-lsp|jdtls|ruby-lsp/) {
+            bucket=1; name="Editor language servers"
+        } else if (lcmd ~ /docker|hyperkit|vpnkit/) {
+            bucket=1; name="Docker VM & helpers"
+        } else if (lcmd ~ /simulator|coresimulator/) {
+            bucket=1; name="iOS Simulator"
+        } else if (lcmd ~ /webkit\.webcontent|webkit\.gpu|webkit\.networking/) {
+            bucket=1; name="Safari web content (tabs)"
+        } else if (lcmd ~ /^ \/system\/|\/usr\/libexec\/|\/usr\/sbin\/|^ \/sbin\//) {
+            bucket=3; name="macOS system"
+        } else if (match(cmd, /\/[^\/]+\.app\//)) {
+            app=substr(cmd, RSTART+1, RLENGTH-2)
+            sub(/\.app$/, "", app)
+            if (lcmd ~ /helper|crashpad|--type=(renderer|gpu|utility)/) { bucket=1; name=app " helpers" }
+            else { bucket=2; name=app }
+        } else if (user != cur_user) {
+            bucket=4; name="(other users)"
+        } else if (ram >= 100) {
+            bucket=2
+            name=$11
+            gsub(/.*\//, "", name)
+        } else {
+            next
+        }
+
+        key=bucket SUBSEP name
+        b_ram[key]+=ram; b_cpu[key]+=cpu; b_cnt[key]++
+        if (b_npid[key] < 15) b_pids[key]=b_pids[key] (b_npid[key]++ ? "," : "") pid
+        t_ram[bucket]+=ram; t_cnt[bucket]++
+    }
+    END {
+        for (k in b_ram) {
+            split(k, kk, SUBSEP)
+            printf "%d\t%.0f\t%.1f\t%d\t%s\t%s\n", kk[1], b_ram[k], b_cpu[k], b_cnt[k], b_pids[k], kk[2]
+        }
+        printf "#TOTALS\t%.0f\t%.0f\t%.0f\t%.0f\t%d\t%d\n", t_ram[0], t_ram[1], t_ram[2], t_ram[3], t_cnt[3], t_cnt[4]
+    }')
+
+    totals_line=$(grep '^#TOTALS' <<<"$scan_out")
+    entries=$(grep -v '^#' <<<"$scan_out" | sort -t$'\t' -k1,1n -k2,2rn)
+
+    local _t prot_total=0 safe_total=0 ask_total=0 sys_total=0 sys_cnt=0 other_cnt=0
+    IFS=$'\t' read -r _t prot_total safe_total ask_total sys_total sys_cnt other_cnt <<<"$totals_line"
+    prot_total=${prot_total:-0};  safe_total=${safe_total:-0};  ask_total=${ask_total:-0}
+    sys_total=${sys_total:-0};    sys_cnt=${sys_cnt:-0};        other_cnt=${other_cnt:-0}
+
+    # Kill registry for interactive mode
+    KILL_LABEL=(); KILL_PIDS=(); KILL_KIND=()
+    local kill_count=0
+
+    local bucket ram cpu cnt pids name num
+    while IFS=$'\t' read -r bucket ram cpu cnt pids name; do
+        [ -z "$bucket" ] && continue
+        ram=${ram:-0}
+        (( ram < 20 )) && continue
+
+        case $bucket in
+            0)
+                printf "  ${DIM}🔒 %-46s %6d MB  %3d procs${RESET}\n" "$name" "$ram" "$cnt"
+                ;;
+            1)
+                kill_count=$(( kill_count + 1 ))
+                KILL_LABEL[$kill_count]="$name"; KILL_PIDS[$kill_count]="$pids"; KILL_KIND[$kill_count]="safe"
+                printf "  ${GREEN}[%-2d] ✓ %-43s${RESET} %6d MB  %3d procs\n" "$kill_count" "$name" "$ram" "$cnt"
+                ;;
+            2)
+                kill_count=$(( kill_count + 1 ))
+                KILL_LABEL[$kill_count]="$name"; KILL_PIDS[$kill_count]="$pids"; KILL_KIND[$kill_count]="ask"
+                printf "  ${YELLOW}[%-2d] ? %-43s${RESET} %6d MB  %3d procs\n" "$kill_count" "$name" "$ram" "$cnt"
+                ;;
+        esac
+    done <<< "$entries"
+
+    if (( kill_count == 0 )); then
+        ok "Nothing worth killing found — your RAM is already lean."
+        echo ""
+        return 0
+    fi
+
+    echo ""
+    echo -e "  ${DIM}✓ = safe to kill (respawns/restarts cleanly)   ? = app you opened, decide yourself${RESET}"
+    echo -e "  ${DIM}🔒 = protected model runtime. macOS system processes (${sys_cnt} procs, ${sys_total}MB)${RESET}"
+    echo -e "  ${DIM}   and other users' processes are never offered for killing.${RESET}"
+
+    # ── Reclaimable summary + model fit ─────────────────────────────────────
+    local reclaim=$(( safe_total + ask_total ))
+    local usable_now=$(( free_mb + inactive_mb ))
+    echo ""
+    echo -e "  ${BOLD}RECLAIMABLE SUMMARY${RESET}"
+    info "  Safe-to-kill pool:     ${BOLD}${safe_total} MB${RESET}  (~$(fmt_gb "$safe_total") GB)"
+    info "  If you also quit ?:    ${BOLD}${ask_total} MB${RESET} more"
+    info "  Total reclaimable:     ${BOLD}${reclaim} MB (~$(fmt_gb "$reclaim") GB)${RESET}"
+    echo ""
+    info "  Can run right now:      $(model_tier_for_mb "$usable_now")"
+    info "  After freeing pool:     ${BOLD}$(model_tier_for_mb "$(( usable_now + reclaim ))")${RESET}"
+
+    # ── Interactive kill ────────────────────────────────────────────────────
+    echo ""
+    printf "  Kill which ones? Numbers (space-separated), '${GREEN}safe${RESET}' for all ✓ items, "
+    printf "'all', or Enter to cancel: "
+    local ans=""
+    read -r ans < /dev/tty 2>/dev/null || ans=""
+
+    if [ -z "$ans" ] || [ "$ans" = "q" ] || [ "$ans" = "n" ]; then
+        echo -e "  ${DIM}Cancelled — nothing was killed.${RESET}"
+        echo ""
+        return 0
+    fi
+
+    local selected="" tok
+    for tok in $ans; do
+        if [ "$tok" = "safe" ]; then
+            local j
+            for j in "${!KILL_KIND[@]}"; do
+                [ "${KILL_KIND[$j]}" = "safe" ] && selected="$selected $j"
+            done
+        elif [ "$tok" = "all" ]; then
+            selected="$(seq 1 "$kill_count")"
+        elif echo "$tok" | grep -qE '^[0-9]+$' && [ "$tok" -ge 1 ] && [ "$tok" -le "$kill_count" ] 2>/dev/null; then
+            selected="$selected $tok"
+        fi
+    done
+
+    [ -z "$(echo "$selected" | tr -d ' ')" ] && { echo -e "  ${DIM}No valid selection — nothing killed.${RESET}"; echo ""; return 0; }
+
+    local idx label plist pid_list alive_pids
+    for idx in $selected; do
+        label="${KILL_LABEL[$idx]}"
+        pid_list="${KILL_PIDS[$idx]//,/ }"
+        echo -e "  ${CYAN}Killing: $label${RESET}  ${DIM}(TERM → $pid_list)${RESET}"
+        for plist in $pid_list; do
+            [ "$plist" = "1" ] && continue
+            kill -TERM "$plist" 2>/dev/null || warn "Could not kill PID $plist (permission?)"
+        done
+    done
+
+    sleep 2
+    echo ""
+    for idx in $selected; do
+        label="${KILL_LABEL[$idx]}"
+        pid_list="${KILL_PIDS[$idx]//,/ }"
+        alive_pids=""
+        for plist in $pid_list; do
+            kill -0 "$plist" 2>/dev/null && alive_pids="$alive_pids $plist"
+        done
+        if [ -n "$alive_pids" ]; then
+            warn "$label still running ($alive_pids) — it may be ignoring TERM. Force with: kill -9$alive_pids"
+        else
+            ok "$label stopped."
+        fi
+    done
+
+    # ── Post-action re-check ────────────────────────────────────────────────
+    local vm2 pf2 free_mb2 gained
+    vm2=$(vm_stat)
+    pf2=$(echo "$vm2" | awk '/Pages free/{gsub(/\./,"",$3); print $3+0}')
+    free_mb2=$(( pf2 * page_size / 1048576 ))
+    gained=$(( free_mb2 - free_mb ))
+    echo ""
+    if (( gained > 50 )); then
+        ok "Free memory: ${free_mb}MB → ${BOLD}${free_mb2}MB${RESET} (+${gained}MB). Ready to load your model."
+    else
+        info "Free memory now: ${free_mb2}MB (counters can lag a few seconds)."
+    fi
+    info "Tip: inactive/cache memory also refills free RAM automatically as the model loads."
+    echo ""
 }
 
 # ── HTML Report Generator ─────────────────────────────────────────────────────
@@ -285,12 +577,18 @@ HTMLEOF
 # ════════════════════════════════════════════════════════════════════════════
 # STARTUP
 # ════════════════════════════════════════════════════════════════════════════
+# Dedicated mode: exits after showing what to kill to free RAM for local models
+if [ "$DO_FREERAM" = "true" ]; then
+    run_free_ram_mode
+    exit 0
+fi
+
 load_snapshot
 clear
 
 echo -e "${BOLD}"
 echo "  ╔══════════════════════════════════════════════════════════════╗"
-echo "  ║                    🩺  Mac Doctor  v2.1                     ║"
+echo "  ║                    🩺  Mac Doctor  v2.2                     ║"
 echo "  ║           Granular macOS Performance Diagnostics            ║"
 echo "  ╚══════════════════════════════════════════════════════════════╝"
 echo -e "${RESET}"
@@ -351,7 +649,7 @@ updates_raw=$(softwareupdate -l 2>&1 || echo "")
 if echo "$updates_raw" | grep -q "No new software available"; then
     ok "macOS is up to date."
 else
-    update_count=$(echo "$updates_raw" | grep -c "^\*" || echo "0")
+    update_count=$(echo "$updates_raw" | grep -c "^\*")
     if (( update_count > 0 )); then
         warn "$update_count software update(s) pending. Background installd tasks may be consuming resources."
         echo "$updates_raw" | grep "^\*" | head -5 | while IFS= read -r line; do
@@ -1124,7 +1422,7 @@ if [ -n "$active_iface" ]; then
     else                          ok   "DNS resolution is fast (${dns_ms}ms)."
     fi
 
-    vpn_count=$(ifconfig 2>/dev/null | grep -c '^utun' || echo "0")
+    vpn_count=$(ifconfig 2>/dev/null | grep -c '^utun')
     (( vpn_count > 2 )) && info "VPN active ($vpn_count tunnel interfaces). VPNs can slow network and cause DNS issues."
 
     # WiFi diagnostics — system_profiler (airport binary removed in macOS 14+)
@@ -1478,7 +1776,7 @@ if [ -d ~/Library/Caches/Homebrew ]; then
 fi
 
 # Git FSEvents watchers (current user's open .git handles)
-git_watchers=$(lsof -u "$(whoami)" 2>/dev/null | grep -c '\.git' || echo "0")
+git_watchers=$(lsof -u "$(whoami)" 2>/dev/null | grep -c '\.git')
 info "Open .git file handles (FSEvents watchers): ${BOLD}$git_watchers${RESET}"
 if (( git_watchers > 100 )); then
     dev_anything_found=true
@@ -1609,8 +1907,8 @@ score_empty=$(( 30 - score_filled ))
 
 echo -e "  ${BOLD}MAC HEALTH SCORE${RESET}"
 printf "  ${SCORE_COLOR}${BOLD}"
-printf '%0.s█' $(seq 1 $score_filled 2>/dev/null) || true
-printf '%0.s░' $(seq 1 $score_empty  2>/dev/null) || true
+(( score_filled > 0 )) && printf '%0.s█' $(seq 1 "$score_filled")
+(( score_empty  > 0 )) && printf '%0.s░' $(seq 1 "$score_empty")
 printf "${RESET}  ${SCORE_COLOR}${BOLD}Health Score: %d / 100${RESET}  (%s)\n" "$HEALTH_SCORE" "$SCORE_LABEL"
 echo ""
 (( ISSUES_FOUND   > 0 )) && echo -e "  ${RED}    $ISSUES_FOUND critical issue(s)  × 10 pts = -$(( ISSUES_FOUND * 10 ))${RESET}"
@@ -1787,3 +2085,5 @@ fi
 # HTML REPORT EXPORT
 # ════════════════════════════════════════════════════════════════════════════
 [ "$DO_HTML" = "true" ] && generate_html_report
+
+exit 0
